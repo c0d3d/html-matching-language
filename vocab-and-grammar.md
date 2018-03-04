@@ -26,23 +26,25 @@
   the map contains a mapping from *pattern variable* name to its value.
 
 * A *literal* in the context of an HML pattern means a symbol that is matched literally. In order for a literal to match
-  the exact symbol must be present in the same structural position.
+  the exact symbol must be present in the same structural position. These are things like strings, numeric literals, and
+  html element names (in function call position).
 
 
 ## Grammar
 ----
 
-The grammar is copied from [`X-expression`][xml-docs] (Racket's xml module). The `cdata` and `misc` terminals are removed.
+The grammar is copied from [`X-expression`][xml-docs] (Racket's xml module). The `cdata`, `misc`, and `valid-char?` terminals are removed.
 HML's pattern syntax borrows from their `X-expression` to help provide a more familiar interface.
 
 ```
+make-pattern = (make-pattern pattern)
+
 pattern-match = (match/html (pattern doc) body)
 
 pattern = string
         | (symbol ((symbol string) ...) pattern ...)
         | (symbol pattern ...)
         | symbol
-        | valid-char?
 
 doc = any-racket-expression
 
@@ -55,10 +57,15 @@ In HML each pair creates a new sub-pattern. Sub patterns match against nesting i
 The first part of the pair is interpreted as the tag name. Any symbol that is not at the beginning of a sub pattern is
 interpreted to be a pattern variable, and will be captured inside the match map.
 
+a `pattern-match` expression performs the matching against the `body`. Note that pattern can be a literal `pattern` expression (expressed inline),
+or a pattern value (created by `make-pattern`).
+
+a `make-pattern` expression compiles a given literal pattern into a pattern value that can be passed around like other racket values.
+
 ## Sample Code
 ----
 
-The following example has the following HTML document bound to `document`
+The following examples have the following HTML document bound to `document`
 
 ```
 <!DOCTYPE html>
@@ -70,22 +77,24 @@ The following example has the following HTML document bound to `document`
 
     <div>
       <h1>Secion 1</h1>
-      <p>Some text in section 1</p>
+      <p>Text1</p>
     </div>
 
     <div>
       <h1>Section 2</h1>
-      <p>Some text in section 2</p>
+      <p>Text2</p>
     </div>
 
-    <h1>Unmatched section</h1>
-    <p>Yet some more text</p>
+	<p>
+	  <h1>Unmatched</h1>
+	  <p>More text</p>
+    </p>
 
   </body>
 </html>
 ```
 
-Here is example code to extract the section 1 & 2 data:
+### Example 1: Simple Extraction
 
 ```
 (define match-output
@@ -93,16 +102,44 @@ Here is example code to extract the section 1 & 2 data:
    ((div (h1 title)
          (p  content))
     document)
-   (cons (hash-ref mm title) (hash-ref mm content))))
+   (cons (hash-ref mm "title") (hash-ref mm "content"))))
 
 ;; There were two structural matches, one for each section.
 ;; The body of the match was evaluated twice, and the results are
 ;; in the output.
 (check-equal? match-output
-              '(("Section 1" . "Some text in section 1")
-                ("Section 2" . "Some text in section 2")))
+              '(("Section 1" . "Text1")
+                ("Section 2" . "Text2")))
 
 ```
 
+### Example 2: Patterns as Data
+
+```
+(define pat1
+  (make-pattern
+   (div (h1 "Section 1")
+        (p contents))))
+
+(define pat2
+  (make-pattern
+   (p (h1 title)
+      (p contents))))
+
+(define match-output
+  (match/html
+   ; or attempts both patterns
+   (or pat1 pat2)
+   (if (hash-has-key? mm "title")
+       (string-append
+        (hash-ref mm "title") ": "
+        (hash-ref mm "contents"))
+       (hash-ref mm "contents"))))
+
+(check-equal?
+ match-output
+ '("Text1" "Unmatched: More text"))
+
+```
 
 [xml-docs]:https://docs.racket-lang.org/xml/#%28def._%28%28lib._xml%2Fprivate%2Fxexpr-core..rkt%29._xexpr~3f%29%29
