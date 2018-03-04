@@ -1,133 +1,131 @@
 #lang racket
 
-;; This module serves two purposes:
-;;   1. Create a structure that is sort of a map-tree.
-;;      The "map-tree" meaning that it is tree with maps at the nodes
-;;      and no data at the leaves. The semantics of this tree is that it
-;;      represents a set of maps, where each node will be unioned with
-;;      each of its children idividually yielding a seperate match for each.
-;;      This is kind of a "diff list" for maps except there are maps multiple
-;;      being constructed in parallel. A final "build" function will traverse
-;;      the tree and produce a list of maps that correspond to the union of
-;;      each path to a base node from the root. See `html-matcher` for why
-;;      this could possibly be useful.
-;;   2. Allows us to optimize the storage and runtime of this structure.
-;;      For example: A node with only one child can always be collapsed
-;;      into a single node (see the "seal" function). These optimizations
-;;      would be possible with a simpler list and hash based structure at
-;;      the use site, but it is cleaner to build an abstraction for these
-;;      things.
-
-;; An MDiffMap is a [List ImmutableHashMap [Listof MDiffMapSealed]].
-;; This represents a node in our map-tree that has yet to be finalized
-
-;; An MDiffMapSealed (sealed-map ImmutableHashMap [Listof MDiffMapSealed])
-;; This represents a node that has been "sealed", as in has been
-;; finalized and optimized.
+;; This module creates a structure that is sort of a map-tree.
+;; The "map-tree" meaning that it is tree with maps at the nodes
+;; and no data at the leaves. The semantics of this tree is that it
+;; represents a set of maps, where each node will be unioned with
+;; each of its children idividually yielding a seperate match for each.
+;; This is kind of a "diff list" for maps except there are multiple maps
+;; being constructed in parallel. A final "build" function will traverse
+;; the tree and produce a list of maps where each map corresponds to the union
+;; of all the nodes along a unique path from the root of the tree to a base node.
+;; There is one map for each such path. See `html-matcher` for why
+;; this could possibly be useful.
 
 (provide
-
- ;; MDiffMap
- mdiff-map-empty
-
- ;; MDiffMap key val -> MDiffMap
- mdiff-map-set
-
- ;; MDiffMap MDiffMapSealed -> MDiffMap
- mdiff-map-add-child
-
- ;; MDiffMap -> MDiffMapSealed
- seal
-
- ;; MDiffMapSealed -> [Listof ImmutableHashMap]
+ mdm-empty
+ mdm-set
+ mdm-add-child
+ base-count
  build)
 
-(require racket/struct)
+(require racket/hash)
 
 (module+ test
-  (require rackunit (for-syntax syntax/parse))
+  (require rackunit)
   (define mt-hash (make-immutable-hash '()))
-  (define ab-hash (im-map ['a 'b]))
-  (define cd-hash (im-map ['c 'd]))
-  (define wxyz-hash (im-map ['w 'x] ['y 'z]))
+  (define ab-hash (make-immutable-hash '((a . b))))
+  (define cd-hash (make-immutable-hash '((c . d))))
+  (define ef-hash (make-immutable-hash '((e . f))))
+  (define gh-hash (make-immutable-hash '((g . h))))
+  (define ij-hash (make-immutable-hash '((i . j))))
+  (define kl-hash (make-immutable-hash '((k . l))))
+  (define mn-hash (make-immutable-hash '((m . n))))
 
   (define mt-node (list mt-hash '()))
   (define ab-node (list ab-hash '()))
   (define cd-node (list cd-hash '()))
-  (define wxyz-node (list wxyz-hash '()))
 
-  (define mt-sealed (sealed-map mt-hash '()))
-  (define ab-sealed (sealed-map ab-hash '()))
-  (define cd-sealed (sealed-map cd-hash '()))
-  (define wxyz-sealed (sealed-map wxyz-hash '()))
+  (define ef-node (list ef-hash '()))
+  (define gh-node (list gh-hash '()))
+  (define ij-node (list ij-hash '()))
+  (define kl-node (list kl-hash '()))
 
-  (define ab-cd-node (list ab-hash `(,cd-sealed)))
-  (define wxyz-ab+cd-node (list wxyz-hash `(,ab-sealed ,cd-sealed)))
+  (define ab-cd-node (list ab-hash `(,cd-node)))
+  (define ef-gh+ij-node (list ef-hash `(,gh-node ,ij-node)))
+  (define kl-<ef-gh+ij>-node (list kl-hash `(,ef-gh+ij-node)))
 
-  (define ab-cd-sealed (sealed-map ab-hash `(,cd-sealed)))
-  (define wxyz-ab+cd-sealed (sealed-map wxyz-hash `(,ab-sealed ,cd-sealed))))
+  ;; One more complicated example.
+  (define mn-<kl-<ef-gh+ij>>+<ab-cd>-node
+    (list mn-hash `(,kl-<ef-gh+ij>-node ,ab-cd-node))))
 
-(struct sealed-map (data children) #:transparent)
+;; An MDiffMap is a [List ImmutableHashMap [Listof MDiffMap]].
+;; This represents a node in our map-tree that has yet to be finalized
 
 ;; MDiffMap
 ;; The empty MDiffMap
-(define mdiff-map-empty
+(define mdm-empty
   (list (make-immutable-hash '()) '()))
 
-(define build (void))
-(define seal (void))
-(define mdiff-map-add-child (void))
-(define mdiff-map-set (void))
-
-;; [Or MDiffMap MDiffMapSealed] -> [List ImmutableHashMap [Listof MDiffMapSealed]]
-;; Normalizes the given input, and extracts the important information.
-(define (extract m)
-  (cond
-    [(sealed-map? m) (struct->list m)]
-    [else m]))
+;; MDiffMap MDiffMap -> MDiffMap
+;; Extends the first mdm with the second as a child.
+(define (mdm-add-child mdm child)
+  (match-define (list hash children) mdm)
+  (list hash (cons child children)))
 
 (module+ test
-  (check-equal? (extract (list mt-hash '()))
-                (list mt-hash '()))
-  (check-equal? (extract (extract mt-sealed))
-                (list mt-hash '()))
-  (check-equal? (extract ab-node)
-                ab-node)
-  (check-equal? (extract ab-sealed)
-                ab-node)
-  (check-equal? (extract wxyz-ab+cd-sealed)
-                wxyz-ab+cd-node))
+  (check-equal?
+   (mdm-add-child mt-node ab-node) (list mt-hash (list ab-node)))
+  (check-equal?
+   (mdm-add-child ab-node cd-node) ab-cd-node)
+  (check-equal?
+   (mdm-add-child (list ef-hash `(,ij-node)) gh-node) ef-gh+ij-node)
+  (check-equal?
+   (mdm-add-child mn-<kl-<ef-gh+ij>>+<ab-cd>-node ab-node)
+   (list mn-hash `(,ab-node ,kl-<ef-gh+ij>-node ,ab-cd-node)))
+  (check-equal?
+   (mdm-add-child mt-node mt-node)
+   (list mt-hash (list mt-node))))
 
+;; MDiffMap key val -> MDiffMap
+;; Extends the given MDiffMap with a new key-value mapping.
+(define (mdm-set mdm k v)
+  (match-define (list hash children) mdm)
+  (list (hash-set hash k v) children))
+
+(module+ test
+  (check-equal? (mdm-set mt-node 'a 'b) ab-node)
+  (check-equal?
+   (mdm-set ab-node 'c 'd) (list #hash((a . b) (c . d)) '()))
+  (check-equal?
+   (mdm-set ab-cd-node 'c 'd) (list #hash((a . b) (c . d)) (list cd-node))))
+
+;; MDiffMap -> [Listof ImmutableHashMap]
+;; Collapses the map tree into individual hashes.
+;; There is one hash in the returned list for every path
+;; from the root of the tree to a base node. The hashes
+;; are the union of all the nodes along each path.
+(define (build mdm)
+  (match-define (list hash children) mdm)
+  (if (empty? children)
+      (list hash)
+      (for/list ([child (append-map build children)])
+        (hash-union hash child))))
+
+(module+ test
+  (check-equal? (build mt-node) (list #hash()))
+  (check-equal? (build (mdm-add-child mt-node mt-node)) (list #hash()))
+  (check-equal? (build (mdm-add-child (mdm-add-child mt-node mt-node) ab-node))
+                (list #hash((a . b)) #hash()))
+  (check-equal? (build ab-cd-node)
+                (list #hash((a . b) (c . d))))
+  (check-equal? (build ab-node) (list #hash((a . b))))
+  (check-equal?
+   (build mn-<kl-<ef-gh+ij>>+<ab-cd>-node)
+   (list #hash((m . n) (k . l) (e . f) (g . h))
+         #hash((m . n) (k . l) (e . f) (i . j))
+         #hash((m . n) (a . b) (c . d)))))
 
 ;; [Or MDiffMap MDiffMapSealed] -> Nat
 ;; Counts the number of nodes at the base of the tree
 (define (base-count m)
-  (match-define (list data children) (extract m))
+  (match-define (list _ children) m)
   (cond
     [(empty? children) 1]
     [else (foldl + 0 (map base-count children))]))
 
 (module+ test
   (check-equal? (base-count mt-node) 1)
-  (check-equal? (base-count mt-sealed) 1)
-
-  (check-equal? (base-count ab-node) 1)
-  (check-equal? (base-count ab-sealed) 1)
-
-  (check-equal? (base-count wxyz-node) 1)
-  (check-equal? (base-count wxyz-sealed) 1)
-
   (check-equal? (base-count ab-cd-node) 1)
-  (check-equal? (base-count ab-cd-sealed) 1)
-
-  (check-equal? (base-count wxyz-ab+cd-node) 2)
-  (check-equal? (base-count wxyz-ab+cd-sealed) 2))
-
-
-(module+ test
-  (define-syntax im-map
-    (syntax-parser
-      [(_ (v1:expr v2:expr) (v3:expr v4:expr) ...)
-       #'(hash-set (im-map (v3 v4) ...) v1 v2)]
-      [(_)
-       #'mt-hash])))
+  (check-equal? (base-count ef-gh+ij-node) 2)
+  (check-equal? (base-count mn-<kl-<ef-gh+ij>>+<ab-cd>-node) 3))
