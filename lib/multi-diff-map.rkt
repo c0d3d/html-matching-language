@@ -13,6 +13,7 @@
 ;; this could possibly be useful.
 
 (provide
+; mdm-with
  mdm-empty
  mdm-set
  mdm-add-child
@@ -129,3 +130,10 @@
   (check-equal? (base-count ab-cd-node) 1)
   (check-equal? (base-count ef-gh+ij-node) 2)
   (check-equal? (base-count mn-<kl-<ef-gh+ij>>+<ab-cd>-node) 3))
+
+#;(define (mdm-with . pairs)
+  (when (odd? (length pairs)) (error "Need pairs to make a map"))
+  (define (combine-pairs l)
+    (cons (cons (first l) (second l)) (pairs (rest (rest l)))))
+  (define combined-pairs (combine-pairs pairs))
+  (list (make-immutable-hash combined-pairs)))
