@@ -13,14 +13,23 @@
 ;; this could possibly be useful.
 
 (provide
-; mdm-with
+ ; Functions
  mdm-empty
+ mdm-empty?
  mdm-set
  mdm-add-child
+ mdm-join
+ mdm-ref
+ make-mdm
+ mdm-set-children
  base-count
- build)
+ build-mdm
+
+ ; Syntax
+ mdm-with)
 
 (require racket/hash)
+(require (for-syntax syntax/parse))
 
 (module+ test
   (require rackunit)
@@ -57,6 +66,28 @@
 ;; The empty MDiffMap
 (define mdm-empty
   (list (make-immutable-hash '()) '()))
+
+;; ImmutableHash [Listof MDiffMap] -> MDiffMap
+;; Simple constructor for mdm's
+(define (make-mdm h children)
+  (list h children))
+
+;; MDiffMap [Listof MDiffMap] -> MDiffMap
+;; Functionally sets the children of the given mdm
+(define (mdm-set-children m children)
+  (match-define (list h _) m)
+  (list h children))
+
+;; MDiffMap -> Boolean
+;; Is the given MDiffMap *THE* empty map?
+;; Compared by reference since we should only have
+;; one empty map.
+(define (mdm-empty? mdm)
+  (eq? mdm mdm-empty))
+(module+ test
+  (check-true (mdm-empty? mdm-empty))
+  (check-false (mdm-empty? (mdm-with ['a 'b])))
+  (check-false (mdm-empty? (mdm-add-child mdm-empty (mdm-with ['a 'b])))))
 
 ;; MDiffMap MDiffMap -> MDiffMap
 ;; Extends the first mdm with the second as a child.
@@ -96,44 +127,75 @@
 ;; There is one hash in the returned list for every path
 ;; from the root of the tree to a base node. The hashes
 ;; are the union of all the nodes along each path.
-(define (build mdm)
+;; Note that empty nodes along the path won't have any affect
+;; on the result of this function.
+(define (build-mdm mdm)
   (match-define (list hash children) mdm)
-  (if (empty? children)
-      (list hash)
-      (for/list ([child (append-map build children)])
-        (hash-union hash child))))
+  (cond
+    [(and (hash-empty? hash) (empty? children))
+     (list)]
+    [(hash-empty? hash) (append-map build-mdm children)]
+    [(empty? children) (list hash)]
+    [else
+     (for/list ([child (append-map build-mdm children)])
+       (hash-union hash child))]))
 
 (module+ test
-  (check-equal? (build mt-node) (list #hash()))
-  (check-equal? (build (mdm-add-child mt-node mt-node)) (list #hash()))
-  (check-equal? (build (mdm-add-child (mdm-add-child mt-node mt-node) ab-node))
-                (list #hash((a . b)) #hash()))
-  (check-equal? (build ab-cd-node)
+  (check-equal? (build-mdm mt-node) (list))
+  (check-equal? (build-mdm (mdm-add-child mt-node mt-node)) (list))
+  (check-equal? (build-mdm (mdm-add-child (mdm-add-child mt-node mt-node) ab-node))
+                (list #hash((a . b))))
+  (check-equal? (build-mdm ab-cd-node)
                 (list #hash((a . b) (c . d))))
-  (check-equal? (build ab-node) (list #hash((a . b))))
+  (check-equal? (build-mdm ab-node) (list #hash((a . b))))
   (check-equal?
-   (build mn-<kl-<ef-gh+ij>>+<ab-cd>-node)
+   (build-mdm mn-<kl-<ef-gh+ij>>+<ab-cd>-node)
    (list #hash((m . n) (k . l) (e . f) (g . h))
          #hash((m . n) (k . l) (e . f) (i . j))
          #hash((m . n) (a . b) (c . d)))))
 
-;; [Or MDiffMap MDiffMapSealed] -> Nat
+;; MDiffMap -> Nat
 ;; Counts the number of nodes at the base of the tree
 (define (base-count m)
-  (match-define (list _ children) m)
+  (match-define (list h children) m)
   (cond
-    [(empty? children) 1]
+    [(and (not (hash-empty? h)) (empty? children)) 1]
     [else (foldl + 0 (map base-count children))]))
 
+;; Syntax for easily making a multi-diff-map
+(define-syntax mdm-with
+  (syntax-parser
+    [(_ (k1:expr v1:expr) (k-rest:expr v-rest:expr) ...)
+     #'(mdm-set (mdm-with (k-rest v-rest) ...) k1 v1)]
+    [(_)
+     #'mdm-empty]))
+
 (module+ test
-  (check-equal? (base-count mt-node) 1)
+  (check-equal? (base-count mt-node) 0)
   (check-equal? (base-count ab-cd-node) 1)
   (check-equal? (base-count ef-gh+ij-node) 2)
   (check-equal? (base-count mn-<kl-<ef-gh+ij>>+<ab-cd>-node) 3))
 
-#;(define (mdm-with . pairs)
-  (when (odd? (length pairs)) (error "Need pairs to make a map"))
-  (define (combine-pairs l)
-    (cons (cons (first l) (second l)) (pairs (rest (rest l)))))
-  (define combined-pairs (combine-pairs pairs))
-  (list (make-immutable-hash combined-pairs)))
+;; MDiffMap Key -> [Or #f Value]
+;; Returns either #f (if the given mdm doesn't map anything with the given key),
+;; or the mapped value for the given key.
+(define (mdm-ref mdm k)
+  (match-define (list h children) mdm)
+  (if (hash-has-key? h k)
+      (hash-ref h k)
+      (ormap (λ (x) (mdm-ref x k)) children)))
+
+(module+ test
+  (check-equal? (mdm-ref mn-<kl-<ef-gh+ij>>+<ab-cd>-node 'z) #f)
+  (check-equal? (mdm-ref mn-<kl-<ef-gh+ij>>+<ab-cd>-node 'a) 'b)
+  (check-equal? (mdm-ref mn-<kl-<ef-gh+ij>>+<ab-cd>-node 'e) 'f)
+  (check-equal? (mdm-ref mn-<kl-<ef-gh+ij>>+<ab-cd>-node 'm) 'n)
+  (check-equal? (mdm-ref mn-<kl-<ef-gh+ij>>+<ab-cd>-node 'h) #f)
+  (check-equal? (mdm-ref mn-<kl-<ef-gh+ij>>+<ab-cd>-node 'c) 'd))
+
+
+;; TODO
+;; MDiffMap MDiffMap -> MDiffMap
+;; Joins the two maps.
+(define (mdm-join mdm1 mdm2)
+  (void))
