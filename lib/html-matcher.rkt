@@ -190,30 +190,7 @@
                      body ...)])
            rec-name))]))
 
-(define (build mdm)
-  ;; (displayln (format "mdm:build ~a" (build-mdm mdm)))
-  ;; (define into-hash
-  ;;   (foldl (λ (nxt acc)
-  ;;            (foldl
-  ;;             (λ (nxt2 acc2)
-  ;;               (hash-set acc2 (cons (rest nxt2) )))
-  ;;             acc
-  ;;             (hash->list nxt)))
-  ;;          (make-immutable-hash)
-  ;;          (build-mdm mdm)))
-  ;; (displayln (format "into ~a" into-hash))
-  ;; (define out-of-hash (hash->list into-hash))
-  ;; (displayln (format "out-of-hash ~a" out-of-hash))
-  ;; (define condensed (map (λ (p)
-  ;;                          (map (λ (x) (make-immutable-hash
-  ;;                                       (list (cons (first p) x))))
-  ;;                               (second p)))
-  ;;                        out-of-hash))
-  ;; (displayln (format "condensed ~a" condensed))
-  ;; (define joined (apply (λ (a . x) (apply map (cons list (cons a x)))) condensed))
-  ;; (displayln (format "joined ~a" joined))
-  ;; (define folded (map (λ (x) (foldl hash-union (make-immutable-hash) x)) joined))
-  (remove-duplicates (build-mdm mdm)))
+(define build (compose remove-duplicates build-mdm))
 
 ;; Xml Symbol -> Bool
 ;; Returns true if the given Xml is an element with the given tag.
@@ -321,13 +298,3 @@
   (check-equal?
    (remove-loc (string->xml/element "<a c=\"b\">stuff</a>"))
    (element #f #f 'a `(,(attribute #f #f 'c "b")) `(,(pcdata #f #f "stuff")))))
-
-
-
-;; Syntax to calls the given function with the given arguments
-;; except a MatchFailed is inserted in front of
-;; the first given argument.
-(define-syntax call/escape
-  (syntax-parser
-    [(_ f args ...)
-     #'(let/ec ec (f (λ ([v #f]) (ec v)) args ...))]))
