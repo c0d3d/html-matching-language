@@ -79,6 +79,21 @@
 
 ;; A Dtd is a type of value in the xml module that we do not support.
 
+
+(struct nest-tag (sym contents) #:transparent)
+(struct leaf-tag (data) #:transparent)
+
+;; A MatchLvl is one of:
+;; - (nest-tag name sub-eles)
+;; - (leaf-tag data)
+
+;; A Matcher has the signature (MatchMap MatchLvl -> MatchMap)
+;; These are functions which will compute matches. The function should
+;; assign matches into the given MatchMap based on its matching criteria,
+;; as well as the kind of MatchLvl that was passed in.
+
+
+
 ;; A MatchMap is a MDiffMap
 ;; with all pattern variables associated to their respective values.
 
@@ -171,25 +186,6 @@
                  (prolog (list (comment "One")) #f (list (comment "Two"))))
                 (list (comment "One") (comment "Two"))))
 
-;; Syntax extension for making
-;; functions that produce matchers
-(define-syntax define-matcher-maker
-  (syntax-parser
-    [(_ (fun-name:id fun-args:id ...) body ...)
-     #:with acc-name (datum->syntax #'fun-name 'acc)
-     #:with doc-name (datum->syntax #'fun-name 'doc)
-     #'(define (fun-name fun-args ...)
-         (λ (acc-name doc-name)
-           body ...))]
-    [(_ (fun-name:id [rec-name:id] fun-args:id ...) body ...)
-     #:with acc-name (datum->syntax #'fun-name 'acc)
-     #:with doc-name (datum->syntax #'fun-name 'doc)
-     #'(define (fun-name fun-args ...)
-         (letrec ([rec-name
-                   (λ (acc-name doc-name)
-                     body ...)])
-           rec-name))]))
-
 (define build (compose remove-duplicates build-mdm))
 
 ;; Xml Symbol -> Bool
@@ -226,33 +222,52 @@
    (current-continuation-marks)
    key))
 
-;; Symbol ContentMatcher -> Matcher
-;; Creates a matcher that matches only nesting tags that have the given name.
-;; if a passed in doc has the correct name, the contents are passed into the
-;; content-matcher, and the result of that matcher becomes the result of this
-;; matcher.
-(define-matcher-maker (sub-pat-matcher [self-fun] ele-tag content-matcher)
-  (define this-lvl-matches? (has-tag? doc ele-tag))
-  (define cur-tag (get-tag doc))
-  (with-continuation-mark 'tag cur-tag
-    (let ([this-lvl-mm
-           (cond
-             [(not this-lvl-matches?) acc]
-             ; Now we know that (equal? this-lvl-matches? true)
-             [(symbol? content-matcher)
-              (define cur-marks (reverse (extract-current-continuation-marks 'tag)))
-              (define next-match (match-data cur-marks (xml/list->string (xml-content doc))))
-              (mdm-add-child acc (mdm-with [content-matcher next-match]))]
-             [else
-              (match/foldl content-matcher acc (xml-content doc))])])
-      (match/foldl self-fun this-lvl-mm (xml-content doc)))))
-(module+ test
-  ; Matches "a" tags, and binds their content the key 'content
-  (define a-pat-matcher (sub-pat-matcher 'a 'content))
-  (check-mdm-empty? (a-pat-matcher mdm-empty (comment "a")))
-  (check-mdm-empty? (a-pat-matcher mdm-empty (pcdata #f #f "a")))
-  (check-mdm-empty? (a-pat-matcher mdm-empty (cdata #f #f "a")))
-  (check-mdm-empty? (a-pat-matcher mdm-empty (element #f #f 'b '() '()))))
+(define-syntax def-self-app-matcher-maker
+  (syntax-parser
+    [(_ acc-name:id
+        (fname:id args:id ...)
+        [((~datum nest-tag) name-name:id content-name:id) inside1 ...]
+        [((~datum leaf-tag) data-name:id) inside2 ...])
+     #'(define (fname args ...)
+         (define (self)
+           (λ (acc-name cur-lvl)
+             (match cur-lvl
+               [(nest-tag name-name content-name)
+                (with-continuation-mark 'tag name-name
+                  (let ([ans1 ((λ () inside1 ...))]) ;; Allow for definition context
+                    (match/foldl (self) ans1 (filter nest-tag? (map as-lvl content-name)))))]
+               [(leaf-tag data-name)
+                inside2 ...])))
+         (self))]))
+
+(define (as-lvl xml)
+  (define t (get-tag xml))
+  (if t (nest-tag t (xml-content xml)) (leaf-tag xml)))
+
+(define (add-or-perform-sub content-matcher acc remain)
+  (if (symbol? content-matcher)
+      (set-match acc content-matcher remain)
+      (match/foldl content-matcher acc remain)))
+
+(define (sub-pat-matcher ele sub)
+  (define f (sub-pat-matcher* ele sub))
+  (λ (a l) (f a (as-lvl l))))
+
+(def-self-app-matcher-maker acc (sub-pat-matcher* ele sub)
+  [(nest-tag tag-name sub-xmls)
+   (if (symbol=? tag-name ele)
+       (add-or-perform-sub sub acc sub-xmls)
+       acc)]
+  ;; This matcher only matches tags.
+  ;; So we never match just data
+  [(leaf-tag tag-data) acc])
+
+(define (set-match mdm name dat)
+  (define path (reverse (extract-current-continuation-marks 'tag)))
+  (define dat-as-string
+    (if (list? dat) (xml/list->string dat) (xml->string dat)))
+  (mdm-add-child mdm (mdm-with
+                      [name (match-data path dat-as-string)])))
 
 ;; Xml -> String
 ;; Converter from xml to string repr
