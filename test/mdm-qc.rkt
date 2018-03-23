@@ -37,6 +37,7 @@
 (define prop_base-count=build-list-len
   (property
    ([mdm mdm-gen])
+   ;;#t
    (equal? (length (build-mdm mdm))
            (base-count mdm))))
 
