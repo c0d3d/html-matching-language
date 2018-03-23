@@ -15,14 +15,16 @@ test all: .setup
 	$(RACO) $(TEST) $(SRC)
 
 .setup:
-	$(RACO) setup --pkgs $(PROJ_NAME)
+	$(RACO) pkg install || exit 0
 	@touch .setup
 
 install: test
 
 clean:
-	-rm -rf .setup
 	find . -name "compiled" -type d -prune -exec rm -r {} \;
 
+uninstall:
+	$(RACO) pkg remove $(PROJ_NAME)
+	-rm -rf .setup
 
-.PHONY: all clean install test
+.PHONY: all clean install test uninstall
