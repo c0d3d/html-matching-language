@@ -1,11 +1,11 @@
 #lang racket
 
 (require (for-syntax syntax/parse)
-         racket/hash
          xml
          "multi-diff-map.rkt")
 
 (provide
+ top-level-anchored-matcher
  content?
  has-tag?
  sub-pat-matcher
@@ -160,29 +160,40 @@
    (current-continuation-marks)
    key))
 
-(define-syntax define-matcher-maker
+(define-syntax define-match-maker
   (syntax-parser
     [(_ acc-name:id
         (fname:id args:id ...)
-        (~datum #:apply-self)
         [((~datum nest-tag) name-name:id content-name:id)
+         (~optional (~seq (~datum #:apply-self) (~bind [app-self #'#t]))
+                    #:defaults ([app-self #'#f]))
          (~optional (~and (~seq kw:keyword kv:expr)
                           (~seq kw-args ...))
                     #:defaults ([kw #'#f] [kv #'#f] [(kw-args 1) (list #'(void))]))
          inside1 ...] ...
-        [((~datum leaf-tag) data-name:id) inside2 ...])
-     #`(define (fname args ...)
-         (define (self)
-           (λ (acc-name cur-lvl)
-             (match cur-lvl
-               [(nest-tag name-name content-name)
-                kw-args ...
-                (with-continuation-mark 'tag name-name
-                  (let ([ans1 ((λ () inside1 ...))]) ;; Allow for definition context
-                    (match/foldl (self) ans1 (filter nest-tag? (map as-lvl content-name)))))] ...
-               [(leaf-tag data-name)
-                inside2 ...])))
-         (self))]))
+        [((~datum leaf-tag) data-name:id)
+         (~optional (~and (~seq leaf-kw:keyword leaf-kv:expr)
+                          (~seq leaf-kw-args ...))
+                    #:defaults ([leaf-kw #'#f] [leaf-kv #'#f] [(leaf-kw-args 1) (list #'(void))]))
+         inside2 ...] ...)
+     #'(define (fname args ...)
+         (define (match-nest-tag args ...)
+           (define (self)
+             (λ (acc-name cur-lvl)
+               (match cur-lvl
+                 [(nest-tag name-name content-name)
+                  kw-args ...
+                  (with-continuation-mark 'tag name-name
+                    (let ([ans1 ((λ () inside1 ...))]) ;; Allow for definition context
+                      (if app-self
+                          (match/foldl (self) ans1 (filter nest-tag? (map as-lvl content-name)))
+                          acc-name)))] ...
+                 [(leaf-tag data-name)
+                  leaf-kw-args ...
+                  inside2 ...] ...)))
+           (self))
+         (define the-fun (match-nest-tag args ...))
+         (λ (acc next-xmls) (the-fun acc (as-lvl next-xmls))))]))
 
 (define (as-lvl xml)
   (define t (get-tag xml))
@@ -193,20 +204,35 @@
       (set-match acc content-matcher remain)
       (match/foldl content-matcher acc remain)))
 
-
-(define (sub-pat-matcher ele sub)
-  (define f (sub-pat-matcher* ele sub))
-  (λ (a l) (f a (as-lvl l))))
-
-(define-matcher-maker acc (sub-pat-matcher* ele sub)
-  #:apply-self
+(define-match-maker acc (sub-pat-matcher ele sub)
   [(nest-tag tag-name sub-xmls)
+   #:apply-self
    #:when (symbol=? tag-name ele)
    (add-or-perform-sub sub acc sub-xmls)]
-  [(nest-tag a b) acc]
-  ;; This matcher only matches tags.
-  ;; So we never match just data
+  ; Current limitation: This needs to be here to continue the traversal.
+  [(nest-tag a b) #:apply-self acc]
+  ; This matcher only matches tags.
+  ; So we never match just data
   [(leaf-tag tag-data) acc])
+
+;; This one doesn't self apply
+;; So it will only continue if it matches starting at the top level.
+(define-match-maker acc (top-level-anchored-matcher ele sub)
+  [(nest-tag name sub-xmls)
+   #:when (not ele) ; an "always match"
+   (set-match acc sub sub-xmls)]
+  [(nest-tag name sub-xmls) ; a "match a tag"
+   #:when (and (procedure? sub)
+               (symbol=? name ele))
+   (match/foldl sub acc sub-xmls)]
+  [(nest-tag name sub-xmls) ; a "match a tag"
+   #:when (symbol=? name ele)
+   (set-match acc sub sub-xmls)]
+  [(nest-tag name sub-xmls) acc]
+  [(leaf-tag dat)
+   #:when (not ele)
+   (set-match acc sub dat)]
+  [(leaf-tag dat) acc])
 
 (define (set-match mdm name dat)
   (define path (reverse (extract-current-continuation-marks 'tag)))
