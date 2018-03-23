@@ -12,7 +12,7 @@
       ]
     }
   },
-  "script": "make",
+  "script": "make install",
   "language": "racket",
   "os": "linux",
   "group": "stable",
