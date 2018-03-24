@@ -15,7 +15,7 @@ test all: .setup
 	$(RACO) $(TEST) $(SRC)
 
 .setup:
-	$(RACO) pkg install || exit 0
+	$(RACO) pkg install --deps search-auto || exit 0
 	@touch .setup
 
 install: test
