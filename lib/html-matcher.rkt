@@ -176,6 +176,7 @@
 (define-syntax (define-match-maker stx)
   (syntax-parse stx
     [(_ (~kw-with-default #:acc-name acc-name (format-id stx "acc"))
+        (~kw-with-default #:disable-self-app dsa #'#f)
         (fname:id . args)
         [((~datum nest-tag) tname nxt-xmls)
          the-kw-args1:kw-arg ...
@@ -198,7 +199,7 @@
                            ; Always apply the top-level mark, will duplicate but whatever
                            (with-continuation-mark TOP-LEVEL-CM #t
                              ((λ () body1 ...)))])
-                      (if self-app?
+                      (if (and (not dsa) self-app?)
                           (match/foldl (self) the-ans (filter nest-tag? (map as-lvl nxt-xmls)))
                           the-ans)))] ...
                  [(leaf-tag dname)
@@ -222,8 +223,7 @@
       (set-match acc content-matcher remain #:as-child as-child?)
       (match/foldl content-matcher acc remain)))
 
-(define-match-maker
-  (ordered-sub-pat-matcher ele . subs)
+(define-match-maker (ordered-sub-pat-matcher ele . subs)
   [(nest-tag tag-name sub-xmls)
    #:when (and (equal? (length sub-xmls) (length subs))
                (eq? ele tag-name))
@@ -255,7 +255,9 @@
 
 ;; This one doesn't self apply
 ;; So it will only continue if it matches starting at the top level.
-(define-match-maker (top-level-anchored-matcher ele sub)
+(define-match-maker
+  #:disable-self-app #t
+  (top-level-anchored-matcher ele sub)
   [(nest-tag name sub-xmls)
    #:when (not ele) ; an "always match"
    (set-match acc sub sub-xmls)]
