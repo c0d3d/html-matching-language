@@ -1,19 +1,16 @@
 #lang racket
 
-(require (for-syntax syntax/parse racket))
-(require "../lib/html-matcher.rkt"
-         "../lib/multi-diff-map.rkt"
+(require (for-syntax syntax/parse
+                     racket
+                     "../lib/hml-lang.rkt"))
+(require "../lib/multi-diff-map.rkt"
          "../lib/hml-lang.rkt"
-         rackunit
-         xml)
+         rackunit)
 
 (provide
  (all-from-out
   racket
-  xml
   rackunit
-  "../lib/html-matcher.rkt"
-  "../lib/multi-diff-map.rkt"
   "../lib/hml-lang.rkt"))
 
 (provide
@@ -22,8 +19,6 @@
 (define-syntax (test stx)
   (syntax-parse stx
     [(_ m:expr xexpr ((~seq k:expr (path:expr ...) v:expr) ...) ...)
-     #:with scoped-app (datum->syntax #'m '#%app)
-     #:with matcher-val #'(let-syntax ([scoped-app compile-pattern]) m)
-     #'(check-equal?
-        (build-mdm (matcher-val mdm-empty (xexpr->xml xexpr)))
+     #`(check-equal?
+        (build-mdm (#,(make-pattern* #'m) mdm-empty (xexpr->xml xexpr)))
         (list (make-immutable-hash (list (cons k (match-data (list 'path ...) v)) ...)) ...))]))

@@ -4,7 +4,7 @@ JOBS := $(shell nproc 2> /dev/null)
 PROJ_NAME := $(shell basename $(shell pwd))
 SCRIBBLINGS_DIR := scribblings
 DOC_DIR := doc
-BASE_DOC := $(SCRIBBLINGS_DIR)/hml-lang.scrbl
+BASE_DOC := hml-lang.scrbl
 DOC_OUTPUT := $(DOC_DIR)/hml-lang
 
 
@@ -23,7 +23,7 @@ test: .setup
 	$(RACO) $(TEST) $(SRC)
 
 $(DOC_OUTPUT)/index.html:
-	 $(RACO) $(SCRIBBLE) --dest $(DOC_DIR) $(BASE_DOC)
+	 cd $(SCRIBBLINGS_DIR); $(RACO) $(SCRIBBLE) --dest $(DOC_DIR) $(BASE_DOC)
 
 .setup:
 	$(RACO) $(PKG_INSTALL) --deps search-auto || exit 0

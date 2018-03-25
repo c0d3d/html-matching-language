@@ -15,6 +15,7 @@
  xml-content
  match-data
  string->xml/element
+ xexpr->xml/element
  get-tag
  xml->string
  content-content
@@ -288,6 +289,10 @@
 ;; Xml -> String
 ;; Converter from xml to string repr
 (define xml->string (compose xexpr->string xml->xexpr))
+
+;; XExpr -> Xml
+;; Convert from XExpr to Xml element.
+(define xexpr->xml/element (compose document-element xexpr->xml))
 
 
 ;; [Listof Xml] -> String

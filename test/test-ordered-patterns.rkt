@@ -36,15 +36,6 @@
  ('m1 (a a b) "one"
   'm2 (a a c) "two"))
 
-
-;; TODO this problem shows the issue
-;; we need to only self apply the very top level
-;; possibly add a tl kw arg for self application
-;; needs to be a member on the matcher-maker and not
-;; at the decleration site
-
-;; TODO this is actually incorrect
-;; last two hashes should exist.
 (test
  2-ordered
  '(a (a (b "one1")
