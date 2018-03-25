@@ -17,13 +17,13 @@ endif
 TEST := test $(JOBS)
 PKG_INSTALL := pkg install --batch $(JOBS)
 PKG_REMOVE  := pkg remove --batch $(JOBS)
-SCRIBBLE := scribble --htmls
+SCRIBBLE := scribble --htmls ++xref-in setup/xref load-collections-xref --redirect-main 'https://docs.racket-lang.org/'
 
 test: .setup
 	$(RACO) $(TEST) $(SRC)
 
 $(DOC_OUTPUT)/index.html:
-	 cd $(SCRIBBLINGS_DIR); $(RACO) $(SCRIBBLE) --dest $(DOC_DIR) $(BASE_DOC)
+	 cd $(SCRIBBLINGS_DIR); $(RACO) $(SCRIBBLE) --dest ../$(DOC_DIR) $(BASE_DOC)
 
 .setup:
 	$(RACO) $(PKG_INSTALL) --deps search-auto || exit 0

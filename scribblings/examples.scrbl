@@ -1,10 +1,12 @@
 #lang scribble/manual
 
 @(require
-  (for-label "../lib/hml-lang.rkt" racket)
+  (for-label "../lib/hml-lang.rkt" racket xml)
   scribble/eval)
 
 @title{HML Examples}
+
+
 
 @(define do-eval (make-base-eval))
 @interaction-eval[#:eval do-eval
@@ -23,7 +25,17 @@
                          (p "Text 2"))
                         (p
                          (h1 "Unmatched")
-                         (p "More text"))))))]
+                         (p "More text"))))))
+ 		  (define written-doc1 (display-xml/content doc1))]
+
+
+
+
+Given the following document bound to @code{doc1}:
+@interaction[
+	#:eval do-eval
+	written-doc1
+]
 
 @examples[
           #:eval do-eval
