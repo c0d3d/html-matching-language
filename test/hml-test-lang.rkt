@@ -19,11 +19,11 @@
 (provide
  test)
 
-(define-syntax test
-  (syntax-parser
+(define-syntax (test stx)
+  (syntax-parse stx
     [(_ m:expr xexpr ((~seq k:expr (path:expr ...) v:expr) ...) ...)
      #:with scoped-app (datum->syntax #'m '#%app)
      #:with matcher-val #'(let-syntax ([scoped-app compile-pattern]) m)
      #'(check-equal?
-        (build (matcher-val mdm-empty (xexpr->xml xexpr)))
+        (build-mdm (matcher-val mdm-empty (xexpr->xml xexpr)))
         (list (make-immutable-hash (list (cons k (match-data (list 'path ...) v)) ...)) ...))]))

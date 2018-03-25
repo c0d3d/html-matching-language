@@ -1,6 +1,6 @@
 #lang racket
 
-(require (for-syntax syntax/parse)
+(require (for-syntax racket/syntax "html-matcher-syntax.rkt" syntax/parse)
          xml
          racket/splicing
          "multi-diff-map.rkt")
@@ -15,10 +15,10 @@
  xml-content
  match-data
  string->xml/element
- build
  get-tag
  xml->string
- content-content)
+ content-content
+ splicing-let)
 
 ;; A Xml is one of:
 ;;  - Document
@@ -135,7 +135,6 @@
                                     (attribute-value xpr)))]))
 
 
-(define build (compose remove-duplicates build-mdm))
 
 ;; Xml Symbol -> Bool
 ;; Returns true if the given Xml is an element with the given tag.
@@ -162,62 +161,57 @@
    (current-continuation-marks)
    key))
 
-(define-syntax define-match-maker
-  (syntax-parser
-    [(_ (~optional (~seq (~datum #:with-list-end) rest-name:id)
-                   #:defaults ([rest-name #'#f]))
-        (~optional (~seq (~datum #:with-acc-name) acc-name:id))
-        (fname:id args ... )
-        [((~datum nest-tag) name-name:id content-name:id)
-         (~optional (~seq (~datum #:apply-self) (~bind [app-self #'#t]))
-                    #:defaults ([app-self #'#f]))
-         (~optional (~and (~seq kw:keyword kv:expr)
-                          (~seq kw-args ...))
-                    #:defaults ([kw #'#f] [kv #'#f] [(kw-args 1) (list #'(void))])) ...
-         inside1 ...] ...
-        [((~datum leaf-tag) data-name:id)
-         (~optional (~and (~seq leaf-kw:keyword leaf-kv:expr)
-                          (~seq leaf-kw-args ...))
-                    #:defaults ([leaf-kw #'#f] [leaf-kv #'#f] [(leaf-kw-args 1) (list #'(void))]))
-         inside2 ...] ...)
-     #:with acc-name-name (if (not (attribute acc-name)) (datum->syntax #'fname 'acc) #'acc-name)
-     (if (syntax-e #'rest-name)
-         #'(define (fname args ... . rest-name)
-             (define (match-nest-tag args ...)
-               (define (self)
-                 (λ (acc-name-name cur-lvl)
-                   (match cur-lvl
-                     [(nest-tag name-name content-name)
-                      kw-args ...
-                      (with-continuation-mark 'tag name-name
-                        (let ([ans1 ((λ () inside1 ...))]) ;; Allow for definition context
-                          (if app-self
-                              (match/foldl (self) ans1 (filter nest-tag? (map as-lvl content-name)))
-                              ans1)))] ...
-                     [(leaf-tag data-name)
-                      leaf-kw-args ...
-                      inside2 ...] ...)))
-               (self))
-             (define the-fun (match-nest-tag args ...))
-             (λ (acc next-xmls) (the-fun acc (as-lvl next-xmls))))
-         #'(define (fname args ...)
-             (define (match-nest-tag args ...)
-               (define (self)
-                 (λ (acc-name-name cur-lvl)
-                   (match cur-lvl
-                     [(nest-tag name-name content-name)
-                      kw-args ...
-                      (with-continuation-mark 'tag name-name
-                        (let ([ans1 ((λ () inside1 ...))]) ;; Allow for definition context
-                          (if app-self
-                              (match/foldl (self) ans1 (filter nest-tag? (map as-lvl content-name)))
-                              ans1)))] ...
-                     [(leaf-tag data-name)
-                      leaf-kw-args ...
-                      inside2 ...] ...)))
-               (self))
-             (define the-fun (match-nest-tag args ...))
-             (λ (acc next-xmls) (the-fun acc (as-lvl next-xmls)))))]))
+
+(define-for-syntax (fixup-syntax-list l)
+  (cond
+    [(and (list? l) (pair? l)) #`(cons #,(car l) #,(fixup-syntax-list (cdr l)))]
+    [(and (pair? l) (pair? (cdr l)))
+     #`(cons #,(car l) #,(fixup-syntax-list (cdr l)))]
+    [(pair? l)
+     #`(cons #,(car l) #,(cdr l))]
+    [else #'null]))
+
+(define TOP-LEVEL-CM 'top-level)
+(define TAG-CM 'tag)
+(define-syntax (define-match-maker stx)
+  (syntax-parse stx
+    [(_ (~kw-with-default #:acc-name acc-name (format-id stx "acc"))
+        (fname:id . args)
+        [((~datum nest-tag) tname nxt-xmls)
+         the-kw-args1:kw-arg ...
+         body1 ...] ...
+        [((~datum leaf-tag) dname)
+         the-kw-args2:kw-arg ...
+         body2 ...] ...)
+     (define +args (if (pair? (syntax->datum #'args)) (syntax-e #'args) (list #'args)))
+     (define argsl (fixup-syntax-list +args))
+     #`(define (fname #,@+args)
+         (define (the-match #,@+args)
+           (define (self)
+             (λ (acc-name cur-lvl)
+               (define self-app? (should-self-apply?))
+               (match cur-lvl
+                 [(nest-tag tname nxt-xmls)
+                  the-kw-args1.pair ... ...
+                  (with-continuation-mark TAG-CM tname
+                    (let ([the-ans
+                           ; Always apply the top-level mark, will duplicate but whatever
+                           (with-continuation-mark TOP-LEVEL-CM #t
+                             ((λ () body1 ...)))])
+                      (if self-app?
+                          (match/foldl (self) the-ans (filter nest-tag? (map as-lvl nxt-xmls)))
+                          the-ans)))] ...
+                 [(leaf-tag dname)
+                  the-kw-args2.pair ... ...
+                  body2 ...] ...)))
+           (self))
+         (define the-fun (apply the-match #,argsl))
+         (λ (acc next-xmls)
+           (the-fun acc (as-lvl next-xmls))))]))
+
+
+(define (should-self-apply?)
+  (empty? (extract-current-continuation-marks TOP-LEVEL-CM)))
 
 (define (as-lvl xml)
   (define t (get-tag xml))
@@ -229,10 +223,8 @@
       (match/foldl content-matcher acc remain)))
 
 (define-match-maker
-  #:with-list-end subs
-  (ordered-sub-pat-matcher ele)
+  (ordered-sub-pat-matcher ele . subs)
   [(nest-tag tag-name sub-xmls)
-   #:apply-self
    #:when (and (equal? (length sub-xmls) (length subs))
                (eq? ele tag-name))
    (let/cc bail
@@ -248,17 +240,15 @@
               (foldl mdm-join acc (mdm-get-children the-ans)))]))
      (foldl fold-one acc subs sub-xmls))]
   [(nest-tag tag-name sub-xmls)
-   #:apply-self
    acc]
   [(leaf-tag tag-data) acc])
 
 (define-match-maker (sub-pat-matcher ele sub)
   [(nest-tag tag-name sub-xmls)
-   #:apply-self
    #:when (symbol=? tag-name ele)
    (add-or-perform-sub sub acc sub-xmls)]
   ; Current limitation: This needs to be here to continue the traversal.
-  [(nest-tag a b) #:apply-self acc]
+  [(nest-tag a b) acc]
   ; This matcher only matches tags.
   ; So we never match just data
   [(leaf-tag tag-data) acc])
@@ -284,7 +274,7 @@
   [(leaf-tag dat) acc])
 
 (define (set-match mdm name dat #:as-child [as-child? #t])
-  (define path (reverse (extract-current-continuation-marks 'tag)))
+  (define path (reverse (extract-current-continuation-marks TAG-CM)))
   (define dat-as-string
     (if (list? dat) (xml/list->string dat) (xml->string dat)))
   (if as-child?

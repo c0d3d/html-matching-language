@@ -54,9 +54,7 @@
  ('m1 (a a b) "one2"
   'm2 (a a c) "two2")
  ('m1 (a a b) "one1"
-  'm2 (a a c) "two1")
- ('m2 (a a c) "two2")
- ('m1 (a a b) "one1"))
+  'm2 (a a c) "two1"))
 
 #;(test
  3-ordered
