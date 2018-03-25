@@ -1,0 +1,20 @@
+{
+  "addons": {
+    "apt": {
+      "sources": [
+        {
+          "sourceline": "ppa:plt/racket"
+        }
+      ],
+      "packages": [
+        "racket",
+        "make"
+      ]
+    }
+  },
+  "script": "make install",
+  "language": "racket",
+  "os": "linux",
+  "group": "stable",
+  "dist": "trusty"
+}

@@ -56,3 +56,18 @@
  '(a (h1 "Title!")
      (p "test"))
  ('content (a) "<h1>Title!</h1><p>test</p>"))
+
+
+;; Check for matching direct data (none should pass)
+
+(test
+ a-pat-matcher
+ '<!--a-->) ; Comment
+
+(test
+ a-pat-matcher
+ "Hello") ; String
+
+(test
+ a-pat-matcher
+ '(b "a")) ; Wrong tag

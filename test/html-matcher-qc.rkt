@@ -117,4 +117,4 @@
 (module+ test
   (check-property prop_content-is-content?)
   (check-property prop_has-tag?)
-  (with-test-count 100000 (check-property prop_sub-pat-matcher-simple)))
+  (with-test-count 1000 (check-property prop_sub-pat-matcher-simple)))

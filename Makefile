@@ -1,17 +1,44 @@
 RACO=raco
 SRC=lib test
 JOBS := $(shell nproc 2> /dev/null)
-TEST=test --jobs
+PROJ_NAME := $(shell basename $(shell pwd))
+SCRIBBLINGS_DIR := scribblings
+DOC_DIR := doc
+BASE_DOC := $(SCRIBBLINGS_DIR)/hml-lang.scrbl
+DOC_OUTPUT := $(DOC_DIR)/hml-lang
+
+
 ifndef JOBS
-	TEST += 4 # Safe to assume they have at least 4
+	JOBS := 4 # Safe to assume they have at least 4
 else
-	TEST += $(JOBS)
+	JOBS := --jobs $(JOBS)
 endif
 
-all:
+TEST := test $(JOBS)
+PKG_INSTALL := pkg install --batch $(JOBS)
+PKG_REMOVE  := pkg remove --batch $(JOBS)
+SCRIBBLE := scribble --htmls
+
+test: .setup
 	$(RACO) $(TEST) $(SRC)
+
+$(DOC_OUTPUT)/index.html:
+	 $(RACO) $(SCRIBBLE) --dest $(DOC_DIR) $(BASE_DOC)
+
+.setup:
+	$(RACO) $(PKG_INSTALL) --deps search-auto || exit 0
+	@touch .setup
 
 clean:
 	find . -name "compiled" -type d -prune -exec rm -r {} \;
+	-rm -rf $(DOC_OUTPUT)
 
-.PHONY: all clean
+install: test
+all: test
+docs: $(DOC_OUTPUT)/index.html
+
+uninstall: clean
+	$(RACO) $(PKG_REMOVE) $(PROJ_NAME)
+	-rm -rf .setup
+
+.PHONY: all clean install test uninstall docs

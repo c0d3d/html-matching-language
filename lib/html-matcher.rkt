@@ -1,26 +1,13 @@
 #lang racket
 
-(require xml "multi-diff-map.rkt" racket/hash)
-(require (for-syntax syntax/parse))
+(require (for-syntax racket/syntax "html-matcher-syntax.rkt" syntax/parse)
+         xml
+         racket/splicing
+         "multi-diff-map.rkt")
 
-(module+ test
-  (require rackunit racket/match "../test/mdm-test-lib.rkt")
-  (define (remove-loc x)
-    (cond
-      [(location? x) #f]
-      [(document? x)
-       (document (remove-loc x) (remove-loc x) (remove-loc x))]
-      [(element? x)
-       (element
-        #f #f (element-name x)
-        (map remove-loc (element-attributes x))
-        (map remove-loc (element-content x)))]
-      [(attribute? x) (attribute #f #f (attribute-name x) (attribute-value x))]
-      [(entity? x) (entity #f #f (entity-text x))]
-      [(pcdata? x) (pcdata #f #f (pcdata-string x))]
-      [(cdata? x) (cdata #f #f (cdata-string x))]
-      [else x])))
 (provide
+ ordered-sub-pat-matcher
+ top-level-anchored-matcher
  content?
  has-tag?
  sub-pat-matcher
@@ -28,7 +15,10 @@
  xml-content
  match-data
  string->xml/element
- build)
+ get-tag
+ xml->string
+ content-content
+ splicing-let)
 
 ;; A Xml is one of:
 ;;  - Document
@@ -79,6 +69,15 @@
 
 ;; A Dtd is a type of value in the xml module that we do not support.
 
+;; A MatchLvl is one of:
+;; - (nest-tag name sub-eles)
+;; - (leaf-tag data)
+
+;; A Matcher has the signature (MatchMap MatchLvl -> MatchMap)
+;; These are functions which will compute matches. The function should
+;; assign matches into the given MatchMap based on its matching criteria,
+;; as well as the kind of MatchLvl that was passed in.
+
 ;; A MatchMap is a MDiffMap
 ;; with all pattern variables associated to their respective values.
 
@@ -95,10 +94,9 @@
 (define (doc-from-file path)
   (call-with-input-file path read-xml))
 
-
 (struct match-data (path text) #:transparent)
-
-
+(struct nest-tag (sym contents) #:transparent)
+(struct leaf-tag (data) #:transparent)
 
 ; Note: these are missing the unsupported
 ; xml type (p-i)
@@ -109,14 +107,7 @@
 (define (content? x)
   (for/or ([f CONTENT_PREDS])
     (f x)))
-(module+ test
-  (check-true (content? (element #f #f 'a '() (list (pcdata #f #f "Hello")))))
-  (check-true (content? (pcdata #f #f "Hello")))
-  (check-true (content? (entity #f #f 'Hello)))
-  (check-true (content? (comment "Hello")))
-  (check-true (content? (cdata #f #f "Hello")))
-  (check-false (content? (attribute #f #f 'a "b")))
-  (check-false (content? "a")))
+
 
 ;; Content -> [Listof Xml]
 ;; Extracts the given Content's content.
@@ -127,18 +118,7 @@
     [is-simple? (list)]
     [(element? xpr)
      (append '() #;(TODO element-attributes xpr) (element-content xpr))]))
-(module+ test
-  (check-equal? (content-content (comment "Hello")) (list))
-  (check-equal? (content-content (cdata #f #f "Hello")) (list))
-  (check-equal? (content-content (pcdata #f #f "Hello")) (list))
-  (check-equal? (content-content (entity #f #f 'a)) (list))
-  (check-equal? (content-content (element #f #f 'a '() (list (pcdata #f #f "Hello"))))
-                (list (pcdata #f #f "Hello")))
-  (check-equal?
-   (content-content
-    (element
-     #f #f 'a (list (attribute #f #f 'class "test")) (list (pcdata #f #f "Hello"))))
-   (list #;(attribute #f #f 'class "test") (pcdata #f #f "Hello"))))
+
 
 ;; Xml -> [Listof Xml]
 ;; Extracts the content of a given Xml value.
@@ -153,66 +133,21 @@
     [(prolog? xpr) (append (prolog-misc xpr) (prolog-misc2 xpr))]
     [(attribute? xpr) (list (pcdata (source-start xpr) (source-stop xpr)
                                     (attribute-value xpr)))]))
-(module+ test
-  (check-equal? (xml-content (comment "Hello")) (list))
-  (check-equal? (xml-content (cdata #f #f "Hello")) (list))
-  (check-equal? (xml-content (pcdata #f #f "Hello")) (list))
-  (check-equal? (xml-content (entity #f #f 'a)) (list))
-  (check-equal? (xml-content (element #f #f 'a '() (list (pcdata #f #f "Hello"))))
-                (list (pcdata #f #f "Hello")))
-  (check-equal? (xml-content (attribute #f #f 'class "a")) (list (pcdata #f #f "a")))
-  (check-equal? (xml-content
-                 (document
-                  (prolog '() #f '())
-                  (element #f #f 'a '() (list (pcdata #f #f "Hello")))
-                  (list (comment "the comment"))))
-                 (list (element #f #f 'a '() (list (pcdata #f #f "Hello")))))
-  (check-equal? (xml-content
-                 (prolog (list (comment "One")) #f (list (comment "Two"))))
-                (list (comment "One") (comment "Two"))))
 
-;; Syntax extension for making
-;; functions that produce matchers
-(define-syntax define-matcher-maker
-  (syntax-parser
-    [(_ (fun-name:id fun-args:id ...) body ...)
-     #:with acc-name (datum->syntax #'fun-name 'acc)
-     #:with doc-name (datum->syntax #'fun-name 'doc)
-     #'(define (fun-name fun-args ...)
-         (λ (acc-name doc-name)
-           body ...))]
-    [(_ (fun-name:id [rec-name:id] fun-args:id ...) body ...)
-     #:with acc-name (datum->syntax #'fun-name 'acc)
-     #:with doc-name (datum->syntax #'fun-name 'doc)
-     #'(define (fun-name fun-args ...)
-         (letrec ([rec-name
-                   (λ (acc-name doc-name)
-                     body ...)])
-           rec-name))]))
 
-(define build (compose remove-duplicates build-mdm))
 
 ;; Xml Symbol -> Bool
 ;; Returns true if the given Xml is an element with the given tag.
 (define (has-tag? xml tag)
   (and (element? xml) (eq? tag (element-name xml))))
-(module+ test
-  (check-false (has-tag? (pcdata #f #f "a") 'a))
-  (check-false (has-tag? (cdata #f #f "B") 'B))
-  (check-false (has-tag? (attribute #f #f 'a "b") 'a))
-  (check-false (has-tag? (element #f #f 'p '() '()) 'h1))
-  (check-true (has-tag? (element #f #f 'p '() '()) 'p)))
+
 
 ;; Xml -> [Or Symbol False]
 ;; Gets the tag for the given xml if it is an element,
 ;; otherwise returns #f
 (define (get-tag xml)
   (and (element? xml) (element-name xml)))
-(module+ test
-  (check-false (get-tag (pcdata #f #f "a")))
-  (check-false (get-tag (cdata #f #f "B")))
-  (check-false (get-tag (attribute #f #f 'a "b")))
-  (check-equal? (get-tag (element #f #f 'p '() '())) 'p))
+
 
 ;; Matcher MDiffMap [Listof Xml] -> MDiffMap
 ;; Folds the given matcher over the given list of xml's
@@ -226,75 +161,143 @@
    (current-continuation-marks)
    key))
 
-;; Symbol ContentMatcher -> Matcher
-;; Creates a matcher that matches only nesting tags that have the given name.
-;; if a passed in doc has the correct name, the contents are passed into the
-;; content-matcher, and the result of that matcher becomes the result of this
-;; matcher.
-(define-matcher-maker (sub-pat-matcher [self-fun] ele-tag content-matcher)
-  (define this-lvl-matches? (has-tag? doc ele-tag))
-  (define cur-tag (get-tag doc))
-  (with-continuation-mark 'tag cur-tag
-    (let ([this-lvl-mm
-           (cond
-             [(not this-lvl-matches?) acc]
-             ; Now we know that (equal? this-lvl-matches? true)
-             [(symbol? content-matcher)
-              (define cur-marks (reverse (extract-current-continuation-marks 'tag)))
-              (define next-match (match-data cur-marks (xml/list->string (xml-content doc))))
-              (mdm-add-child acc (mdm-with [content-matcher next-match]))]
-             [else
-              (match/foldl content-matcher acc (xml-content doc))])])
-      (match/foldl self-fun this-lvl-mm (xml-content doc)))))
-(module+ test
-  ; Matches "a" tags, and binds their content the key 'content
-  (define a-pat-matcher (sub-pat-matcher 'a 'content))
-  (check-mdm-empty? (a-pat-matcher mdm-empty (comment "a")))
-  (check-mdm-empty? (a-pat-matcher mdm-empty (pcdata #f #f "a")))
-  (check-mdm-empty? (a-pat-matcher mdm-empty (cdata #f #f "a")))
-  (check-mdm-empty? (a-pat-matcher mdm-empty (element #f #f 'b '() '()))))
+
+(define-for-syntax (fixup-syntax-list l)
+  (cond
+    [(and (list? l) (pair? l)) #`(cons #,(car l) #,(fixup-syntax-list (cdr l)))]
+    [(and (pair? l) (pair? (cdr l)))
+     #`(cons #,(car l) #,(fixup-syntax-list (cdr l)))]
+    [(pair? l)
+     #`(cons #,(car l) #,(cdr l))]
+    [else #'null]))
+
+(define TOP-LEVEL-CM 'top-level)
+(define TAG-CM 'tag)
+(define-syntax (define-match-maker stx)
+  (syntax-parse stx
+    [(_ (~kw-with-default #:acc-name acc-name (format-id stx "acc"))
+        (~kw-with-default #:disable-self-app dsa #'#f)
+        (fname:id . args)
+        [((~datum nest-tag) tname nxt-xmls)
+         the-kw-args1:kw-arg ...
+         body1 ...] ...
+        [((~datum leaf-tag) dname)
+         the-kw-args2:kw-arg ...
+         body2 ...] ...)
+     (define +args (if (pair? (syntax->datum #'args)) (syntax-e #'args) (list #'args)))
+     (define argsl (fixup-syntax-list +args))
+     #`(define (fname #,@+args)
+         (define (the-match #,@+args)
+           (define (self)
+             (λ (acc-name cur-lvl)
+               (define self-app? (should-self-apply?))
+               (match cur-lvl
+                 [(nest-tag tname nxt-xmls)
+                  the-kw-args1.pair ... ...
+                  (with-continuation-mark TAG-CM tname
+                    (let ([the-ans
+                           ; Always apply the top-level mark, will duplicate but whatever
+                           (with-continuation-mark TOP-LEVEL-CM #t
+                             ((λ () body1 ...)))])
+                      (if (and (not dsa) self-app?)
+                          (match/foldl (self) the-ans (filter nest-tag? (map as-lvl nxt-xmls)))
+                          the-ans)))] ...
+                 [(leaf-tag dname)
+                  the-kw-args2.pair ... ...
+                  body2 ...] ...)))
+           (self))
+         (define the-fun (apply the-match #,argsl))
+         (λ (acc next-xmls)
+           (the-fun acc (as-lvl next-xmls))))]))
+
+
+(define (should-self-apply?)
+  (empty? (extract-current-continuation-marks TOP-LEVEL-CM)))
+
+(define (as-lvl xml)
+  (define t (get-tag xml))
+  (if t (nest-tag t (xml-content xml)) (leaf-tag xml)))
+
+(define (add-or-perform-sub content-matcher acc remain #:as-child [as-child? #t])
+  (if (symbol? content-matcher)
+      (set-match acc content-matcher remain #:as-child as-child?)
+      (match/foldl content-matcher acc remain)))
+
+(define-match-maker (ordered-sub-pat-matcher ele . subs)
+  [(nest-tag tag-name sub-xmls)
+   #:when (and (equal? (length sub-xmls) (length subs))
+               (eq? ele tag-name))
+   (let/cc bail
+     (define (fail) (bail acc))
+     (define (fold-one nxt-fun nxt-xml acc)
+       (cond
+         [(symbol? nxt-fun)
+          (set-match acc nxt-fun nxt-xml)]
+         [else
+          (define the-ans (nxt-fun mdm-empty nxt-xml))
+          (if (mdm-empty? the-ans)
+              (fail)
+              (foldl mdm-join acc (mdm-get-children the-ans)))]))
+     (foldl fold-one acc subs sub-xmls))]
+  [(nest-tag tag-name sub-xmls)
+   acc]
+  [(leaf-tag tag-data) acc])
+
+(define-match-maker (sub-pat-matcher ele sub)
+  [(nest-tag tag-name sub-xmls)
+   #:when (symbol=? tag-name ele)
+   (add-or-perform-sub sub acc sub-xmls)]
+  ; Current limitation: This needs to be here to continue the traversal.
+  [(nest-tag a b) acc]
+  ; This matcher only matches tags.
+  ; So we never match just data
+  [(leaf-tag tag-data) acc])
+
+;; This one doesn't self apply
+;; So it will only continue if it matches starting at the top level.
+(define-match-maker
+  #:disable-self-app #t
+  (top-level-anchored-matcher ele sub)
+  [(nest-tag name sub-xmls)
+   #:when (not ele) ; an "always match"
+   (set-match acc sub sub-xmls)]
+  [(nest-tag name sub-xmls) ; a "match a tag"
+   #:when (and (procedure? sub)
+               (symbol=? name ele))
+   (match/foldl sub acc sub-xmls)]
+  [(nest-tag name sub-xmls) ; a "match a tag"
+   #:when (and (symbol? sub)
+               (symbol=? name ele))
+   (set-match acc sub sub-xmls)]
+  [(nest-tag name sub-xmls) acc]
+  [(leaf-tag dat)
+   #:when (not ele)
+   (set-match acc sub dat)]
+  [(leaf-tag dat) acc])
+
+(define (set-match mdm name dat #:as-child [as-child? #t])
+  (define path (reverse (extract-current-continuation-marks TAG-CM)))
+  (define dat-as-string
+    (if (list? dat) (xml/list->string dat) (xml->string dat)))
+  (if as-child?
+      (mdm-add-child
+       mdm
+       (mdm-with [name (match-data path dat-as-string)]))
+      (mdm-set mdm name dat)))
 
 ;; Xml -> String
 ;; Converter from xml to string repr
 (define xml->string (compose xexpr->string xml->xexpr))
-(module+ test
-  (check-equal? (xml->string (element #f #f 'a '() '())) "<a></a>")
-  (check-equal? (xml->string (element #f #f 'a
-                                      (list (attribute #f #f 'one "Two")
-                                            (attribute #f #f 'three "Four"))
-                                      (list (pcdata #f #f "Hello World!"))))
-                "<a one=\"Two\" three=\"Four\">Hello World!</a>")
-  (check-equal? (xml->string (pcdata #f #f "ABC")) "ABC")
-  (check-equal? (xml->string (comment "b")) "<!--b-->"))
+
 
 ;; [Listof Xml] -> String
 ;; Converts each xml value into a string
 ;; and concats them all together in the list order
 (define (xml/list->string l)
   (foldl (λ (nxt acc) (string-append acc (xml->string nxt))) "" l))
-(module+ test
-  (define c1
-    (element #f #f 'a
-             (list (attribute #f #f 'one "Two")
-                   (attribute #f #f 'three "Four"))
-             (list (pcdata #f #f "Hello World!"))))
-  (check-equal? (xml/list->string (list (element #f #f 'a '() '()))) "<a></a>")
-  (check-equal? (xml/list->string (list c1))
-                "<a one=\"Two\" three=\"Four\">Hello World!</a>")
-  (check-equal? (xml/list->string (list (pcdata #f #f "ABC"))) "ABC")
-  (check-equal? (xml/list->string (list (comment "b"))) "<!--b-->")
-  (check-equal? (xml/list->string (list (comment "Before") c1 (comment "After")))
-                "<!--Before--><a one=\"Two\" three=\"Four\">Hello World!</a><!--After-->"))
+
 
 ;; String -> Xml
 ;; Converter from strings to xml repr
 (define string->xml/element
   (compose document-element read-xml/document open-input-string))
-(module+ test
-  (check-equal? (remove-loc (string->xml/element "<p></p>")) (element #f #f 'p '() '()))
-  (check-equal?
-   (remove-loc (string->xml/element "<a><h1><p></p></h1></a>"))
-   (element #f #f 'a '() `(,(element #f #f 'h1 '() `(,(element #f #f 'p '() '()))))))
-  (check-equal?
-   (remove-loc (string->xml/element "<a c=\"b\">stuff</a>"))
-   (element #f #f 'a `(,(attribute #f #f 'c "b")) `(,(pcdata #f #f "stuff")))))

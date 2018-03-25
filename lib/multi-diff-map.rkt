@@ -22,6 +22,7 @@
  mdm-ref
  make-mdm
  mdm-set-children
+ mdm-get-children
  base-count
  build-mdm
 
@@ -135,7 +136,7 @@
     [(and (hash-empty? hash) (empty? children))
      (list)]
     [(hash-empty? hash) (append-map build-mdm children)]
-    [(empty? children) (list hash)]
+    [(andmap mdm-empty? children) (list hash)]
     [else
      (for/list ([child (append-map build-mdm children)])
        (hash-union hash child))]))
@@ -193,9 +194,12 @@
   (check-equal? (mdm-ref mn-<kl-<ef-gh+ij>>+<ab-cd>-node 'h) #f)
   (check-equal? (mdm-ref mn-<kl-<ef-gh+ij>>+<ab-cd>-node 'c) 'd))
 
-
-;; TODO
 ;; MDiffMap MDiffMap -> MDiffMap
 ;; Joins the two maps.
 (define (mdm-join mdm1 mdm2)
-  (void))
+  (match-define (list h1 c1) mdm1)
+  (match-define (list h2 c2) mdm2)
+  (list (hash-union h1 h2)
+        (append c1 c2)))
+
+(define mdm-get-children second)
