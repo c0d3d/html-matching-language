@@ -47,6 +47,12 @@
  ('m1 (a a b) "one1"
   'm2 (a a c) "two1"))
 
+(test
+ (a (b 'content1 'content2))
+ '(a (b (a (b "Hello" "World!"))))
+ ('content1 (a b a b) "Hello"
+  'content2 (a b a b) "World!"))
+
 #;(test
  3-ordered
  '(a (a (b "one")

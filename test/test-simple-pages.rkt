@@ -26,12 +26,6 @@
  '(a (a "Stuff" (b (a "Other"))))
  ('content (a a b) "<a>Other</a>"))
 
-(test
- (a (b 'content))
- '(a (b (a (b "Hello" "World!"))))
- ('content (a b a b) "HelloWorld!")
- ('content (a b) "<a><b>HelloWorld!</b></a>"))
-
 ;; Combined stuff is not implemented yet.
 #;(test
  (a 'one (b 'content))
