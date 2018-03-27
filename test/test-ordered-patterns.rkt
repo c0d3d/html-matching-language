@@ -1,10 +1,8 @@
 #lang s-exp "hml-test-lang.rkt"
 
 (define 2-ordered
-  (ordered-sub-pat-matcher
-   'a
-   (ordered-sub-pat-matcher 'b 'm1)
-   (ordered-sub-pat-matcher 'c 'm2)))
+  (make-pattern (a (b 'm1)
+                   (c 'm2))))
 
 
 (test

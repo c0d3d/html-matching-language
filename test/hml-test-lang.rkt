@@ -18,7 +18,7 @@
 
 (define-syntax (test stx)
   (syntax-parse stx
-    [(_ m:expr xexpr ((~seq k:expr (path:expr ...) v:expr) ...) ...)
-     #`(check-equal?
-        (build-mdm (#,(make-pattern* #'m) mdm-empty (xexpr->xml xexpr)))
+    [(_ m:expr xml ((~seq k:expr (path:expr ...) v:expr) ...) ...)
+     #'(check-equal?
+        (match/html m (xexpr->xml xml) mm)
         (list (make-immutable-hash (list (cons k (match-data (list 'path ...) v)) ...)) ...))]))
