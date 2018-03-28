@@ -199,7 +199,11 @@
 (define (mdm-join mdm1 mdm2)
   (match-define (list h1 c1) mdm1)
   (match-define (list h2 c2) mdm2)
-  (list (hash-union h1 h2)
-        (append c1 c2)))
+  (mdm-add-child
+   mdm-empty
+   (mdm-add-child
+    mdm-empty
+    (list (hash-union h1 h2)
+          (append c1 c2)))))
 
 (define mdm-get-children second)

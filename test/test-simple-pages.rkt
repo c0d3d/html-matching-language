@@ -31,19 +31,6 @@
  '(a (h1 "Title!")
      (p "test")))
 
-
-;; Combined stuff is not implemented yet.
-#;(test
-   (a 'one (b 'content))
-   '(a (b "Hello"))
-   ())
-#;(test
-   (a 'one (b 'content))
-   '(a (h1 "Some title")
-       (b "Hello"))
-   ('one (a) "<h1>Some title</h1>"
-         'content (a b) "Hello"))
-
 ;; Check for matching direct data (none should pass)
 
 (test
@@ -57,3 +44,34 @@
 (test
  a-pat-matcher
  '(b "a")) ; Wrong tag
+
+(define pat1 (make-pattern (h1 (div (p 'contents)))))
+(test
+ pat1
+ '(p (a "string")
+     (b (h1 (div (p "Some junk")))))
+ ('contents (p b h1 div p) "Some junk"))
+
+(test
+ (h1 (div (p 'contents1)))
+ '(h1 (div (p
+            (b (s (h1 (div (p (c "Hello")
+                              (d "Goodbye"))))
+                  (h 2)))
+            (h1 (div (p "Wow"))))))
+ ('contents1 (h1 div p h1 div p) "Wow"))
+
+(test
+ (h1 (div (p 'contents1 'contents2)))
+ '(h1 (div (p
+            (b (s (h1 (div (p (c "Hello")
+                              (d "Goodbye"))))
+                  (h 2)))
+            (h1 (div (p "Wow"))))))
+  ('contents1 (h1 div p b s h1 div p) "<c>Hello</c>"
+   'contents2 (h1 div p b s h1 div p) "<d>Goodbye</d>")
+  ('contents1 (h1 div p) (string-append
+                          "<b><s><h1><div><p><c>Hello</c>"
+                          "<d>Goodbye</d></p></div></h1>"
+                          "<h>&#2;</h></s></b>")
+   'contents2 (h1 div p) "<h1><div><p>Wow</p></div></h1>"))
