@@ -19,7 +19,9 @@
  get-tag
  xml->string
  content-content
- splicing-let)
+ splicing-let
+ ms-empty
+ build-ms)
 
 ;; A Xml is one of:
 ;;  - Document
@@ -98,6 +100,7 @@
 (struct match-data (path text) #:transparent)
 (struct nest-tag (sym contents) #:transparent)
 (struct leaf-tag (data) #:transparent)
+(struct match-state (remain mdm))
 
 ; Note: these are missing the unsupported
 ; xml type (p-i)
@@ -154,7 +157,9 @@
 ;; Folds the given matcher over the given list of xml's
 ;; if any provide a match
 (define (match/foldl matcher parent xmls)
-  (foldl (λ (nxt acc) (mdm-add-child acc (matcher mdm-empty nxt))) parent xmls))
+  (define (folder nxt acc)
+    (ms-add-child acc (matcher ms-empty nxt)))
+  (foldl folder parent xmls))
 
 ;; From: https://docs.racket-lang.org/reference/contmarks.html
 (define (extract-current-continuation-marks key)
@@ -235,14 +240,14 @@
          [(symbol? nxt-fun)
           (set-match acc nxt-fun nxt-xml)]
          [else
-          (define the-ans (nxt-fun mdm-empty nxt-xml))
-          (if (mdm-empty? the-ans)
+          (define the-ans (nxt-fun ms-empty nxt-xml))
+          (if (ms-empty? the-ans)
               (fail)
-              (foldl mdm-join acc (mdm-get-children the-ans)))]))
+              (foldl ms-join acc (ms-get-children the-ans)))]))
      (foldl fold-one acc subs sub-xmls))]
-  [(nest-tag tag-name sub-xmls)
-   acc]
+  [(nest-tag tag-name sub-xmls) acc]
   [(leaf-tag tag-data) acc])
+
 
 (define-match-maker (sub-pat-matcher ele sub)
   [(nest-tag tag-name sub-xmls)
@@ -276,15 +281,15 @@
    (set-match acc sub dat)]
   [(leaf-tag dat) acc])
 
-(define (set-match mdm name dat #:as-child [as-child? #t])
+(define (set-match ms name dat #:as-child [as-child? #t])
   (define path (reverse (extract-current-continuation-marks TAG-CM)))
   (define dat-as-string
     (if (list? dat) (xml/list->string dat) (xml->string dat)))
   (if as-child?
-      (mdm-add-child
-       mdm
-       (mdm-with [name (match-data path dat-as-string)]))
-      (mdm-set mdm name dat)))
+      (ms-add-child
+       ms
+       (ms-of name (match-data path dat-as-string)))
+      (ms-set ms name dat)))
 
 ;; Xml -> String
 ;; Converter from xml to string repr
@@ -306,3 +311,33 @@
 ;; Converter from strings to xml repr
 (define string->xml/element
   (compose document-element read-xml/document open-input-string))
+
+(define ms-empty (match-state '() mdm-empty))
+(define/contract ms-empty?
+  (-> match-state? boolean?)
+  (compose mdm-empty? match-state-mdm))
+(define/contract (ms-get-children ms)
+  (-> match-state? (listof match-state?))
+  (map
+   (λ (x) (match-state '() x))
+   ((compose mdm-get-children match-state-mdm) ms)))
+(define/contract (ms-join ms1 ms2)
+  (-> match-state? match-state? match-state?)
+  (match-define (match-state r1 m1) ms1)
+  (match-define (match-state r2 m2) ms2)
+  (match-state
+   (append r1 r2)
+   (mdm-join m1 m2)))
+(define/contract (ms-add-child ms c)
+  (-> match-state? match-state? match-state?)
+  (match-state
+   (match-state-remain ms)
+   (mdm-add-child (match-state-mdm ms) (match-state-mdm c))))
+(define/contract (ms-set ms k v)
+  (-> match-state? any/c any/c match-state?)
+  (match-define (match-state r m) ms)
+  (match-state r (mdm-set m k v)))
+(define/contract (ms-of k v)
+  (-> any/c any/c match-state?)
+  (match-state '() (mdm-with [k v])))
+(define build-ms (compose build-mdm match-state-mdm))

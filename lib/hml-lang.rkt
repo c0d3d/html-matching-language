@@ -10,7 +10,6 @@
  make-pattern
  match/html
  string->xml/element
- build-mdm
  (except-out (all-from-out xml "html-matcher.rkt") attribute))
 
 
@@ -40,9 +39,9 @@
   (syntax-parse stx
     [(_ pat:id doc:expr body:expr)
      #:with mm-name (format-id stx "mm")
-     #`(for/list ([mm-name (build-mdm (pat mdm-empty doc))])
+     #`(for/list ([mm-name (build-ms (pat ms-empty doc))])
          body)]
     [(_ pat:expr doc:expr body:expr)
      #:with mm-name (format-id stx "mm")
-     #`(for/list ([mm-name (build-mdm ((make-pattern pat) mdm-empty doc))])
+     #`(for/list ([mm-name (build-ms ((make-pattern pat) ms-empty doc))])
          body)]))

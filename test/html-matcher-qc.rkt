@@ -114,7 +114,7 @@
 ;; Should contain one match for every instance of a specific tag
 ;;
 
-(module+ test
+#;(module+ test
   (check-property prop_content-is-content?)
   (check-property prop_has-tag?)
   (with-test-count 1000 (check-property prop_sub-pat-matcher-simple)))
