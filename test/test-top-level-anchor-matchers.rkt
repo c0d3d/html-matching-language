@@ -55,30 +55,3 @@
 (test
  a-a-anchor
  '(a "stuff"))
-
-;; Testing top-level and sub matchers together
-
-(define a-anchor-a-sub
-  (top-level-anchored-matcher
-   'a
-   (sub-pat-matcher
-    'a
-    'inside)))
-
-(test
- a-anchor-a-sub
- '(a "stuff"))
-
-(test
- a-anchor-a-sub
- '(a (a "stuff"))
- ('inside (a a) "stuff"))
-
-(test
- a-anchor-a-sub
- '(a (a (a "stuff")))
- ('inside (a a) "<a>stuff</a>"))
-
-(test
- a-anchor-a-sub
- '(a (b (a "stuff"))))

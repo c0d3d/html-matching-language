@@ -10,7 +10,6 @@
  top-level-anchored-matcher
  content?
  has-tag?
- sub-pat-matcher
  xml/list->string
  xml-content
  match-data
@@ -241,23 +240,32 @@
           (set-match acc nxt-fun nxt-xml)]
          [else
           (define the-ans (nxt-fun ms-empty nxt-xml))
-          (if (ms-empty? the-ans)
+          (if (or (not (ms-no-remaining? the-ans))
+                  (ms-empty? the-ans))
               (fail)
               (foldl ms-join acc (ms-get-children the-ans)))]))
      (foldl fold-one acc subs sub-xmls))]
   [(nest-tag tag-name sub-xmls) acc]
   [(leaf-tag tag-data) acc])
 
-
-(define-match-maker (sub-pat-matcher ele sub)
-  [(nest-tag tag-name sub-xmls)
-   #:when (symbol=? tag-name ele)
-   (add-or-perform-sub sub acc sub-xmls)]
-  ; Current limitation: This needs to be here to continue the traversal.
-  [(nest-tag a b) acc]
-  ; This matcher only matches tags.
-  ; So we never match just data
-  [(leaf-tag tag-data) acc])
+(define (wildcard-matcher #:greedy [greedy? #t] . sub-matchers )
+  (define/contract (attempt-match xmls back-off acc)
+    (-> (listof content/c) match-state? (or/c false? match-state?))
+    (define save (+ (length sub-matchers) back-off))
+    (cond
+      [(< (length xmls) save) #f]
+      [else
+        (define to-check (drop xmls (- (length xmls) save)))
+        (define remaining (take xmls (length sub-matchers)))
+        (define match-results
+          (for/list ([xml remaining]
+                     [matcher sub-matchers])
+            (matcher ms-empty (list xml) ; TODO, should be pushing this list at the end (not shifting)
+                     ; all remainings need to be placed in this thing for the last matcher (works for tail wildcard.)
+                     )))
+        (and (andmap (compose not ms-empty?) match-results)
+             (foldl ms-join ms-empty match-results))]))
+  (void))
 
 ;; This one doesn't self apply
 ;; So it will only continue if it matches starting at the top level.
@@ -313,9 +321,10 @@
   (compose document-element read-xml/document open-input-string))
 
 (define ms-empty (match-state '() mdm-empty))
-(define/contract ms-empty?
+(define ms-no-remaining? (compose empty? match-state-remain))
+(define/contract (ms-empty? x)
   (-> match-state? boolean?)
-  (compose mdm-empty? match-state-mdm))
+  (eq? ms-empty x))
 (define/contract (ms-get-children ms)
   (-> match-state? (listof match-state?))
   (map
