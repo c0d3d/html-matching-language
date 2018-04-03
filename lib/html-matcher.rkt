@@ -20,7 +20,8 @@
  content-content
  splicing-let
  ms-empty
- build-ms)
+ build-ms
+ doc-from-file)
 
 ;; A Xml is one of:
 ;;  - Document
@@ -94,7 +95,7 @@
 ;; an XmlPred is a (Xml -> Boolean)
 
 (define (doc-from-file path)
-  (call-with-input-file path read-xml))
+  (document-element (call-with-input-file path read-xml)))
 
 (struct match-data (path text) #:transparent)
 (struct nest-tag (sym contents) #:transparent)
