@@ -1,7 +1,8 @@
 #lang racket
 
 (require (for-syntax syntax/parse racket/syntax))
-(require "html-matcher.rkt"
+(require (except-in "html-matcher.rkt" ms-empty build-ms)
+         "matcher-lib.rkt"
          "multi-diff-map.rkt"
          (prefix-in base: racket)
          xml)
@@ -20,11 +21,11 @@
       [(_ ((~datum quote) a:id))
        #'(base:#%app quote a)]
       [(_ tag:id inside:expr ...)
-       #'(base:#%app
-          ordered-sub-pat-matcher
+       #'(simple-tag-matcher
           'tag
           inside ...)]))
   (define app-name (format-id stx "#%app"))
+
   (syntax-parse stx
     [arg:expr
      #`(let-syntax ([#,app-name #,compile-pattern]) arg)]))
@@ -39,9 +40,9 @@
   (syntax-parse stx
     [(_ pat:id doc:expr body:expr)
      #:with mm-name (format-id stx "mm")
-     #`(for/list ([mm-name (build-ms (pat ms-empty doc))])
+     #`(for/list ([mm-name (build-ms (apply-to-completion pat (list doc)))])
          body)]
     [(_ pat:expr doc:expr body:expr)
      #:with mm-name (format-id stx "mm")
-     #`(for/list ([mm-name (build-ms ((make-pattern pat) ms-empty doc))])
+     #`(for/list ([mm-name (build-ms (apply-to-completion (make-pattern pat) (list doc)))])
          body)]))
