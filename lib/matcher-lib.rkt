@@ -36,6 +36,10 @@
   (match-state (mdm-add-child acc acc-child)
                (append xmls xmls-child)))
 
+(define (ms-set-remain ms remain)
+  (match-define (match-state a _) ms)
+  (match-state a remain))
+
 (define (state-no-remaining? ms)
   (and (match-state? ms) (empty? (match-state-xmls ms))))
 
@@ -56,7 +60,7 @@
   (-> match-state? match-state? match-state?)
   (match-define (match-state acc1 xmls1) ms1)
   (match-define (match-state acc2 xmls2) ms2)
-  (match-state (mdm-join acc1 acc2) (append xmls1 xmls2)))
+  (match-state (mdm-join acc1 acc2) xmls1 #;(append xmls1 xmls2)))
 
 (define/contract (ms-clean-join ms1 ms2)
   (-> match-state? state-no-remaining? match-state?)
@@ -68,7 +72,7 @@
 (define/contract (ms-has-remaining? ms)
   (-> match-state? boolean?)
   (match-define (match-state _ xmls) ms)
-  (empty? xmls))
+  (pair? xmls))
 
 ; Adds given remaining xmls
 (define/contract (ms-add-remaining ms r)
@@ -137,8 +141,9 @@
 (struct data-matcher (name)
   #:methods gen:matcher
   [(define (attempt-match self acc elements)
-     (displayln (format "Found data: ~a ~a" acc elements))
-     (set-match acc (data-matcher-name self) elements))])
+     (match-define (match-state a r) acc)
+     (when (not (equal? r elements)) (error "Damn" r elements))
+     (set-match acc (data-matcher-name self) (first elements) (rest elements) #:as-child #f))])
 
 (define-syntax (simple-tag-matcher stx)
   (syntax-parse stx
@@ -148,7 +153,9 @@
          [((~datum quote) s)
           #'(base:#%app data-matcher 's)]
          [a #'a]))
-     #`(base:#%app simple-tag-matcher* tagname (list #,@(map matcherify (syntax->list #'remaining))))]))
+     #`(base:#%app simple-tag-matcher*
+                   tagname
+                   (list #,@(map matcherify (syntax->list #'remaining))))]))
 
 (define-syntax with-tag
   (syntax-parser
@@ -161,25 +168,19 @@
   [(define (attempt-match self acc elements)
      (define (attempt-match-on-tag cur-tag-name content remaining)
        (match-define (simple-tag-matcher* my-tag-name sub-ms) self)
-       (when (eq? cur-tag-name my-tag-name)
-         (displayln (format "~a == ~a" sub-ms remaining)))
        (if (and (eq? cur-tag-name my-tag-name)
                 (equal? (length sub-ms) (length content)))
-           (begin
-             (displayln (format "Maybe a match?"))
-             (let ([match-result
+           (let ([match-result
                   (with-tag my-tag-name
                     (apply-matchers* sub-ms content ms-empty #;(ms-add-remaining acc remaining)))])
              (if (and match-result (not (ms-has-remaining? match-result)))
                  (ms-add-child acc match-result)
-                 #f)))
+                 #f))
            #f))
      (match elements
        [(cons hd tl)
         (define t (get-tag hd))
-        (define a (if t (attempt-match-on-tag t (xml-content hd) tl) #f))
-        (displayln (format "SMP: ~a" a))
-        a]
+        (if t (attempt-match-on-tag t (xml-content hd) tl) #f)]
        [else #f]))])
 
 
@@ -248,7 +249,7 @@
 (define TAG-CM 'tag)
 (define TAG-TL 'top-level)
 
-(define (set-match ms name dat #:as-child [as-child? #t])
+(define (set-match ms name dat [remain #f] #:as-child [as-child? #t])
   (define path (reverse (extract-current-continuation-marks TAG-CM)))
   (define dat-as-string
     (if (list? dat) (xml/list->string dat) (xml->string dat)))
@@ -256,7 +257,10 @@
     (match-state (mdm-with [name (match-data path dat-as-string)]) '()))
   (if as-child?
       (ms-add-child ms new-state)
-      (ms-join ms new-state)))
+      (let ([joined (ms-join ms new-state)])
+        (if remain
+            (ms-set-remain joined remain)
+            joined))))
 
 (define (extract-current-continuation-marks key)
   (continuation-mark-set->list
