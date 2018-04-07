@@ -21,7 +21,8 @@
  splicing-let
  ms-empty
  build-ms
- doc-from-file)
+ doc-from-file
+ decompose-element)
 
 ;; A Xml is one of:
 ;;  - Document
@@ -111,6 +112,10 @@
 (define (content? x)
   (for/or ([f CONTENT_PREDS])
     (f x)))
+
+(define/contract (decompose-element e)
+  (-> element? (values symbol? (listof content/c)))
+  (values (get-tag e) (xml-content e)))
 
 
 ;; Content -> [Listof Xml]

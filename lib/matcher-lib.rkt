@@ -17,15 +17,50 @@
 (struct match-state (acc xmls) #:transparent)
 (define ms-empty (match-state mdm-empty '()))
 
+(define/contract (ms-empty? m)
+  (-> match-state? boolean?)
+  ; We are always re-using the same reference
+  (eq? m ms-empty))
+
 (define (build-ms ms)
-  (cond
-    [ms
-     (match-define (match-state acc _) ms)
-     (build-mdm acc)]
-    [else '()]))
+  #;(displayln (format "Building: ~a" ms))
+  (define result
+    (cond
+      [ms
+       (match-define (match-state acc _) ms)
+       (build-mdm acc)]
+      [else '()]))
+  #;(displayln (format "Build-Result: ~a" result))
+  result)
+
+(define/contract (ms-prepend-content ms content)
+  (-> match-state? (listof content/c) (values match-state? natural?))
+  (match-define (match-state mdm remain) ms)
+  (values (match-state mdm (append content remain))
+          (length remain)))
 
 (define (merge-state-results s1 s2)
   (and s1 s2 (ms-join s1 s2)))
+
+(define/contract (ms-pop&assign ms name)
+  (-> match-state? symbol? match-state?)
+  (define-values (state ele) (ms-pop-remain ms))
+  (cond
+    [ele
+     (define path (reverse (extract-current-continuation-marks TAG-CM)))
+     (match-define (match-state mdm remain) state)
+     (match-state (mdm-join mdm (mdm-with [name (match-data path (xml->string ele))]))
+                  remain)]
+    [else #f]))
+
+(define (ms-only-remain xmls)
+  (match-state mdm-empty xmls))
+
+(define/contract (ms-pop-remain ms)
+  (-> match-state? (values match-state? (or/c false? content/c)))
+  (match ms
+    [(match-state mdm (list)) (values ms #f)]
+    [(match-state mdm (cons hd tl)) (values (match-state mdm tl) hd)]))
 
 ;; Appends remaining XMLs as well
 ;; as combining accumulators (second one as a child)
@@ -81,69 +116,48 @@
   (match-state acc (append xmls r)))
 
 (define-generics matcher
-  ; Matcher MatchState [Listof Xml] -> (Or False MatchState)
-  [attempt-match . (matcher acc elements)])
+  ; Matcher MatchState -> (Or False MatchState)
+  [attempt-match . (matcher acc)])
 
 (define (get-tag xml)
   (and (element? xml) (element-name xml)))
 
-;; (define (maybe-self f xml-tag xmls acc)
-;;   (define self-apply? (empty? (extract-current-continuation-marks TAG-TL)))
-;;   (if (and self-apply? acc)
-;;       (broadcast f xml-tag xmls acc)
-;;       acc))
-
-(define/contract (apply-matchers* matchers xmls acc)
-  (-> (listof matcher?) (listof content/c) match-state? (or/c match-state? false?))
+(define/contract (apply-matchers matchers state)
+  (-> (listof matcher?) match-state? (or/c match-state? false?))
   (define/contract (apply-single* matcher cur-state)
     (-> matcher? match-state? (or/c false? match-state?))
-    (attempt-match matcher cur-state (match-state-xmls cur-state)))
+    (attempt-match matcher cur-state))
   (define (apply-single matcher acc)
     (and acc (apply-single* matcher acc)))
-  ; Run once through all the matchers
-  ; This yields #f if any of the matchers flat-out failed
-  ; otherwise yields the accumulated matches as well as any remaining
-  ; xmls that need to be consumed
-  (merge-state-results acc (foldl apply-single (match-state mdm-empty xmls) matchers)))
+  (foldl apply-single state matchers))
 
-;; Applies the given matchers, and will fail if there is remaining xml to be consumed
 (define (apply-to-completion matcher xmls)
-  #;(define (apply-to-completion* matcher xmls acc)
-    (define (result-of xml)
-      (define tg (get-tag xml))
-      (define nxt
-        (if tg
-            (with-tag tg
-              (apply-to-completion matcher (xml-content xml))) ; This might need to be fresh
-            ms-empty))
-      (if nxt
-          (or (and (state-no-remaining? nxt) nxt) ms-empty)
-          ms-empty))
-    (define app-result (apply-matchers* (list matcher) xmls ms-empty))
-    (displayln (format "App result ~a" app-result))
-    (define others (foldl (λ (nxt acc) (if nxt (ms-add-child acc nxt) acc))
-                          ms-empty
-                          (map result-of xmls)))
-      (ms-add-child (ms-add-child acc (or app-result ms-empty)) (or others ms-empty)))
-  (define (run x)
-    (define t (get-tag x))
-    (and
-     t
-     (with-tag t (apply-to-completion matcher (xml-content x)))))
-  (define main-ans (apply-matchers* (list matcher) xmls ms-empty))
-  (define sub-anses (map run xmls))
-  (foldl ms-join ms-empty
-         (filter (λ (x) x) (cons main-ans sub-anses))))
-
-  #;(apply-to-completion* matcher xmls ms-empty)
+  (define (fix-result-state a-state)
+    (and a-state (not (ms-has-remaining? a-state)) a-state))
+  (define (apply-to-completion* ele)
+    (match ele
+      [(? get-tag x)
+       (define-values (tag contents) (decompose-element x))
+       (define out-state
+         (with-tag tag (apply-to-completion matcher contents)))
+       (fix-result-state out-state)]
+      [else #f]))
+  (define init-state (ms-only-remain xmls))
+  (define main-ans
+    (fix-result-state (apply-matchers (list matcher) init-state)))
+  (define actual-ans-list (cons main-ans (map apply-to-completion* xmls)))
+  (define condensed-ans
+    (foldl (λ (nxt state) (if nxt (ms-add-child nxt state) state))
+           ms-empty
+           actual-ans-list))
+  (and (not (ms-empty? condensed-ans))
+       condensed-ans))
 
 
 (struct data-matcher (name)
   #:methods gen:matcher
-  [(define (attempt-match self acc elements)
-     (match-define (match-state a r) acc)
-     (when (not (equal? r elements)) (error "Damn" r elements))
-     (set-match acc (data-matcher-name self) (first elements) (rest elements) #:as-child #f))])
+  [(define (attempt-match self acc)
+     (ms-pop&assign acc (data-matcher-name self)))])
 
 (define-syntax (simple-tag-matcher stx)
   (syntax-parse stx
@@ -165,86 +179,23 @@
 
 (struct simple-tag-matcher* (tag-name sub-matchers)
   #:methods gen:matcher
-  [(define (attempt-match self acc elements)
-     (define (attempt-match-on-tag cur-tag-name content remaining)
-       (match-define (simple-tag-matcher* my-tag-name sub-ms) self)
-       (if (and (eq? cur-tag-name my-tag-name)
-                (equal? (length sub-ms) (length content)))
-           (let ([match-result
-                  (with-tag my-tag-name
-                    (apply-matchers* sub-ms content ms-empty #;(ms-add-remaining acc remaining)))])
-             (if (and match-result (not (ms-has-remaining? match-result)))
-                 (ms-add-child acc match-result)
-                 #f))
-           #f))
-     (match elements
-       [(cons hd tl)
-        (define t (get-tag hd))
-        (if t (attempt-match-on-tag t (xml-content hd) tl) #f)]
+  [(define (attempt-match self orig-state)
+     (match-define (simple-tag-matcher* my-name my-subs) self)
+     (define-values (post-state ele) (ms-pop-remain orig-state))
+     (define (tag=? x) (eq? my-name (get-tag x)))
+     (define (attributes=? x) #t) ;; TODO
+     (match ele
+       [(? tag=? (? attributes=? the-ele))
+        (define-values (pre-state old-length)
+          (ms-prepend-content post-state (xml-content the-ele)))
+        (define (next-matcher matcher state)
+          (and state (apply-matchers (list matcher) state)))
+        (define final-state
+          (with-tag my-name (foldl next-matcher pre-state my-subs)))
+        ;; TODO, not sure if we want to enfore this?
+        ;; (equal? (length (ms-remain-length final-state) old-length))
+        final-state]
        [else #f]))])
-
-
-
-;; (define/contract (apply-matcher matcher xml acc)
-;;   (-> matcher? content/c match-state? (or/c match-state? false?))
-;;   (define xml-tag (get-tag xml))
-;;   (define the-ans
-;;     (with-continuation-mark TAG-TL #t
-;;       (if xml-tag
-;;           (attempt-tag-match matcher acc xml-tag (xml-content xml))
-;;           (attempt-data-match matcher acc xml))))
-;;   (if xml-tag
-;;       (maybe-self matcher xml-tag (xml-content xml) (or the-ans acc))
-;;       the-ans))
-
-;; (define/contract (broadcast matcher xml-tag xmls acc)
-;;   (-> matcher? (or/c symbol? false?) (listof content/c) match-state? (or/c match-state? false?))
-;;   (define caller
-;;     (if xml-tag
-;;         (λ (x) (with-continuation-mark TAG-CM xml-tag (x)))
-;;         (λ (x) (x))))
-;;   (define (fold-one nxt acc)
-;;     (define ans (caller (thunk (apply-matcher matcher nxt acc))))
-;;     (if ans ans acc))
-;;   (foldl fold-one acc xmls))
-
-;; (define (join-all l)
-;;   (foldl mdm-join mdm-empty l))
-
-;; (define/contract (all-success matchers elements acc)
-;;   (-> (listof matcher?) (listof content/c) match-state? (or/c match-state? false?))
-;;   (define/contract (fold-one matcher element acc)
-;;     (-> matcher? content/c (or/c false? list?) (or/c list? false?))
-;;     (define ans (apply-matcher matcher element mdm-empty))
-;;     (and acc ans (mdm-join acc ans)))
-;;   (and (equal? (length matchers) (length elements))
-;;        (let ([child (foldl fold-one mdm-empty matchers elements)])
-;;          (and child
-;;               (mdm-add-child acc (join-all (mdm-get-children child)))))))
-
-;; (struct exact-nested-matcher (tag-name inside-matchers)
-;;   #:methods gen:matcher
-;;   [(define (attempt-data-match self acc data) #f)
-;;    (define (attempt-tag-match self acc tname eles)
-;;      (match-define (exact-nested-matcher my-tag my-matchers) self)
-;;      (and (eq? my-tag tname)
-;;           (with-continuation-mark TAG-CM my-tag
-;;             (all-success my-matchers eles acc))))])
-
-;; (struct exact-nested-matcher (tag-name inside-matchers)
-;;   #:methods gen:matcher
-;;   [(define (attempt-data-match self acc data) #f)
-;;    (define (attempt-tag-match self acc tname eles)
-;;      (match-define (exact-nested-matcher my-tag my-matchers) self)
-;;      (and (eq? my-tag tname)
-;;           (with-continuation-mark TAG-CM my-tag
-;;             (all-success my-matchers eles acc))))])
-
-;; (struct only-data-matcher (name)
-;;   #:methods gen:matcher
-;;   [(define (attempt-tag-match self acc tname tcontent) #f)
-;;    (define (attempt-data-match self acc data)
-;;      (set-match acc (only-data-matcher-name self) data))])
 
 (define TAG-CM 'tag)
 (define TAG-TL 'top-level)

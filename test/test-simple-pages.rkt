@@ -10,15 +10,15 @@
 (test
  a-pat-matcher
  '(a (a "Stuff"))
- ('content (a a) "Stuff")
- ('content (a) "<a>Stuff</a>"))
+ ('content (a) "<a>Stuff</a>")
+ ('content (a a) "Stuff"))
 
 
 (test
  a-pat-matcher
  '(a (a "Stuff" (b (a "Other"))))
- ('content (a a b a) "Other")
- ('content (a) "<a>Stuff<b><a>Other</a></b></a>"))
+ ('content (a) "<a>Stuff<b><a>Other</a></b></a>")
+ ('content (a a b a) "Other"))
 
 
 (test
