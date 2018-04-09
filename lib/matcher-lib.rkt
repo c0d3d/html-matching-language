@@ -43,7 +43,7 @@
   (and s1 s2 (ms-join s1 s2)))
 
 (define/contract (ms-pop&assign ms name)
-  (-> match-state? symbol? match-state?)
+  (-> match-state? symbol? (or/c match-state? false?))
   (define-values (state ele) (ms-pop-remain ms))
   (cond
     [ele
@@ -79,7 +79,7 @@
   (and (match-state? ms) (empty? (match-state-xmls ms))))
 
 (define/contract (ms-add-clean-child ms new-child)
-  (-> match-state? state-no-remaining? match-state?)
+  (-> match-state? match-state? match-state?)
   (match-define (match-state a1 x1) ms)
   (match-define (match-state a2 _)  new-child)
   (match-state (mdm-add-child a1 a2) x1))
@@ -87,6 +87,10 @@
 (define (ms-pop-remaining ms)
   (match-define (match-state acc r) ms)
   (match-state acc (rest r)))
+
+(define (ms-clone-remaining ms)
+  (match-define (match-state _ r) ms)
+  (match-state mdm-empty r))
 
 
 ;; Joins the given match-states
@@ -128,23 +132,43 @@
     (-> matcher? match-state? (or/c false? match-state?))
     (attempt-match matcher cur-state))
   (define (apply-single matcher acc)
-    (and acc (apply-single* matcher acc)))
-  (foldl apply-single state matchers))
+    (define ans (apply-single* matcher acc))
+    (or ans
+        (let-values ([(acc _) (ms-pop-remain acc)]) acc))
+    #;(and acc (apply-single* matcher acc)))
+  #;(displayln (format "App-Matchers-In: ~a" state))
+  (define application (foldl apply-single state matchers))
+  ;(displayln (format "App-Matchers-Out: ~a" application))
+  application)
 
 (define (apply-to-completion matcher xmls)
   (define (fix-result-state a-state)
-    (and a-state (not (ms-has-remaining? a-state)) a-state))
+    ;(displayln (format "Before-Fix: ~a" a-state))
+    ;(displayln (format "After-Fix: ~a" (and a-state (not (ms-has-remaining? a-state)) a-state)))
+    (and a-state))
   (define (apply-to-completion* ele)
     (match ele
       [(? get-tag x)
        (define-values (tag contents) (decompose-element x))
        (define out-state
          (with-tag tag (apply-to-completion matcher contents)))
-       (fix-result-state out-state)]
+       out-state]
       [else #f]))
   (define init-state (ms-only-remain xmls))
-  (define main-ans
-    (fix-result-state (apply-matchers (list matcher) init-state)))
+  (define (drain-into parent state)
+    (define new-state (ms-clone-remaining state))
+    (define ans (apply-matchers (list matcher) new-state))
+    ;(displayln (format "Parent&Nxt: \n- ~a\n- ~a\n- ~a" parent ans state))
+    (cond
+      [(and ans (ms-has-remaining? ans))
+       (drain-into (ms-add-clean-child parent ans) ans)]
+      ;; TODO possibly pop remaining by one and try another match
+      ;; in the case that there was a complete failure, and the passed
+      ;; in state has some remaining?
+      [(not ans) #f]
+      [else (ms-add-child parent ans)]))
+  (define main-ans (drain-into ms-empty init-state))
+  ;(displayln (format "Completion-Ans: ~a" main-ans))
   (define actual-ans-list (cons main-ans (map apply-to-completion* xmls)))
   (define condensed-ans
     (foldl (λ (nxt state) (if nxt (ms-add-child nxt state) state))
@@ -188,6 +212,7 @@
        [(? tag=? (? attributes=? the-ele))
         (define-values (pre-state old-length)
           (ms-prepend-content post-state (xml-content the-ele)))
+        ;(displayln (format "Pre-State: ~a" pre-state))
         (define (next-matcher matcher state)
           (and state (apply-matchers (list matcher) state)))
         (define final-state
