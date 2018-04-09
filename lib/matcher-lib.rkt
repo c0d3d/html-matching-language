@@ -208,8 +208,10 @@
      (define-values (post-state ele) (ms-pop-remain orig-state))
      (define (tag=? x) (eq? my-name (get-tag x)))
      (define (attributes=? x) #t) ;; TODO
+     (define (content-len=? x) (equal? (length (xml-content x))
+                                       (length my-subs)))
      (match ele
-       [(? tag=? (? attributes=? the-ele))
+       [(? tag=? (? attributes=? (? content-len=? the-ele)))
         (define-values (pre-state old-length)
           (ms-prepend-content post-state (xml-content the-ele)))
         ;(displayln (format "Pre-State: ~a" pre-state))

@@ -68,10 +68,10 @@
                               (d "Goodbye"))))
                   (h 2)))
             (h1 (div (p "Wow"))))))
-  ('contents1 (h1 div p b s h1 div p) "<c>Hello</c>"
-   'contents2 (h1 div p b s h1 div p) "<d>Goodbye</d>")
   ('contents1 (h1 div p) (string-append
                           "<b><s><h1><div><p><c>Hello</c>"
                           "<d>Goodbye</d></p></div></h1>"
                           "<h>&#2;</h></s></b>")
-   'contents2 (h1 div p) "<h1><div><p>Wow</p></div></h1>"))
+   'contents2 (h1 div p) "<h1><div><p>Wow</p></div></h1>")
+  ('contents1 (h1 div p b s h1 div p) "<c>Hello</c>"
+   'contents2 (h1 div p b s h1 div p) "<d>Goodbye</d>"))
