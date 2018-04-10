@@ -23,14 +23,12 @@
   (eq? m ms-empty))
 
 (define (build-ms ms)
-  #;(displayln (format "Building: ~a" ms))
   (define result
     (cond
       [ms
        (match-define (match-state acc _) ms)
        (build-mdm acc)]
       [else '()]))
-  #;(displayln (format "Build-Result: ~a" result))
   result)
 
 (define/contract (ms-prepend-content ms content)
@@ -130,19 +128,17 @@
 (define (get-tag xml)
   (and (element? xml) (element-name xml)))
 
-(define/contract (apply-matchers matchers state)
-  (-> (listof matcher?) match-state? (or/c match-state? false?))
+(define/contract (apply-matchers matchers state #:strict [is-strict? #f])
+  (->* ((listof matcher?) match-state?) (#:strict boolean?) (or/c match-state? false?))
   (define/contract (apply-single* matcher cur-state)
-    (-> matcher? match-state? (or/c false? match-state?))
-    (attempt-match matcher cur-state))
+    (-> matcher? (or/c match-state? false?) (or/c false? match-state?))
+    (and cur-state (attempt-match matcher cur-state)))
   (define (apply-single matcher acc)
     (define ans (apply-single* matcher acc))
     (or ans
-        (let-values ([(acc _) (ms-pop-remain acc)]) acc))
+        (and (not is-strict?) (let-values ([(acc _) (ms-pop-remain acc)]) acc)))
     #;(and acc (apply-single* matcher acc)))
-  #;(displayln (format "App-Matchers-In: ~a" state))
   (define application (foldl apply-single state matchers))
-  ;(displayln (format "App-Matchers-Out: ~a" application))
   application)
 
 (define (apply-to-completion -matcher xmls)
@@ -214,7 +210,7 @@
         (define-values (pre-state old-length)
           (ms-prepend-content post-state (xml-content the-ele)))
         (define (next-matcher matcher state)
-          (and state (apply-matchers (list matcher) state)))
+          (and state (apply-matchers (list matcher) state #:strict #t)))
         (define final-state
           (with-tag my-name (foldl next-matcher pre-state my-subs)))
         (and final-state
