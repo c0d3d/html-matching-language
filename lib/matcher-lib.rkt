@@ -3,7 +3,7 @@
 (require (for-syntax syntax/parse
                      syntax/quote
                      ))
-(require racket/generic "html-matcher.rkt" "multi-diff-map.rkt" xml
+(require racket/generic "html-matcher.rkt" "multi-diff-map.rkt" "match-state.rkt" xml
          (prefix-in base: racket))
 
 (provide
@@ -12,31 +12,10 @@
  data-matcher
  ms-empty
  build-ms
- apply-to-completion)
+ apply-to-completion
+ WILDCARD-SYM)
 
-(struct match-state (acc xmls) #:transparent)
-(define ms-empty (match-state mdm-empty '()))
-
-(define/contract (ms-empty? m)
-  (-> match-state? boolean?)
-  ; We are always re-using the same reference
-  (eq? m ms-empty))
-
-(define (build-ms ms)
-  (define result
-    (cond
-      [ms
-       (match-define (match-state acc _) ms)
-       (build-mdm acc)]
-      [else '()]))
-  result)
-
-(define/contract (ms-prepend-content ms content)
-  (-> match-state? (listof content/c) (values match-state? natural?))
-  (match-define (match-state mdm remain) ms)
-  (values (match-state mdm (append content remain))
-          (length remain)))
-
+(define WILDCARD-SYM (gensym 'wildcard))
 
 (define bail (make-parameter #f))
 (define (bail-out x)
@@ -48,96 +27,12 @@
          (parameterize ([bail k])
            x ...))]))
 
-(define (merge-state-results s1 s2)
+#;(define (merge-state-results s1 s2)
   (and s1 s2 (ms-join s1 s2)))
-
-(define/contract (ms-pop&assign ms name)
-  (-> match-state? symbol? (or/c match-state? false?))
-  (define-values (state ele) (ms-pop-remain ms))
-  (cond
-    [ele
-     (define path (reverse (extract-current-continuation-marks TAG-CM)))
-     (match-define (match-state mdm remain) state)
-     (match-state (mdm-join mdm (mdm-with [name (match-data path (xml->string ele))]))
-                  remain)]
-    [else #f]))
-
-(define (ms-only-remain xmls)
-  (match-state mdm-empty xmls))
-
-(define/contract (ms-pop-remain ms)
-  (-> match-state? (values match-state? (or/c false? content/c)))
-  (match ms
-    [(match-state mdm (list)) (values ms #f)]
-    [(match-state mdm (cons hd tl)) (values (match-state mdm tl) hd)]))
-
-;; Appends remaining XMLs as well
-;; as combining accumulators (second one as a child)
-(define/contract (ms-add-child ms child)
-  (-> match-state? match-state? match-state?)
-  (match-define (match-state acc xmls) ms)
-  (match-define (match-state acc-child xmls-child) child)
-  (match-state (mdm-add-child acc acc-child)
-               (append xmls xmls-child)))
-
-(define (ms-set-remain ms remain)
-  (match-define (match-state a _) ms)
-  (match-state a remain))
-
-(define (state-no-remaining? ms)
-  (and (match-state? ms) (empty? (match-state-xmls ms))))
-
-(define/contract (ms-add-clean-child ms new-child)
-  (-> match-state? match-state? match-state?)
-  (match-define (match-state a1 x1) ms)
-  (match-define (match-state a2 _)  new-child)
-  (match-state (mdm-add-child a1 a2) x1))
-
-(define (ms-pop-remaining ms)
-  (match-define (match-state acc r) ms)
-  (match-state acc (rest r)))
-
-(define (ms-clone-remaining ms)
-  (match-define (match-state _ r) ms)
-  (match-state mdm-empty r))
-
-(define (ms-remain-length ms)
-  (match-define (match-state _ r) ms)
-  (length r))
-
-
-;; Joins the given match-states
-;; appends xmls, join's acc's
-(define/contract (ms-join ms1 ms2)
-  (-> match-state? match-state? match-state?)
-  (match-define (match-state acc1 xmls1) ms1)
-  (match-define (match-state acc2 xmls2) ms2)
-  (match-state (mdm-join acc1 acc2) xmls1 #;(append xmls1 xmls2)))
-
-(define/contract (ms-clean-join ms1 ms2)
-  (-> match-state? state-no-remaining? match-state?)
-  (match-define (match-state a1 x1) ms1)
-  (match-define (match-state a2 _)  ms2)
-  (match-state (mdm-join a1 a2) x1))
-
-; Does the given match-state have any remaining xmls
-(define/contract (ms-has-remaining? ms)
-  (-> match-state? boolean?)
-  (match-define (match-state _ xmls) ms)
-  (pair? xmls))
-
-; Adds given remaining xmls
-(define/contract (ms-add-remaining ms r)
-  (-> match-state? (listof content/c) match-state?)
-  (match-define (match-state acc xmls) ms)
-  (match-state acc (append xmls r)))
 
 (define-generics matcher
   ; Matcher MatchState -> (Or False MatchState)
   [attempt-match . (matcher acc)])
-
-(define (get-tag xml)
-  (and (element? xml) (element-name xml)))
 
 (define/contract (apply-matchers matchers state #:strict [is-strict? #f])
   (->* ((listof matcher?) match-state?) (#:strict boolean?) (or/c match-state? false?))
@@ -188,23 +83,8 @@
   [(define (attempt-match self acc)
      (ms-pop&assign acc (data-matcher-name self)))])
 
-(define-syntax (simple-tag-matcher stx)
-  (syntax-parse stx
-    [(_ tagname . remaining)
-     (define matcherify
-       (syntax-parser
-         [((~datum quote) s)
-          #'(base:#%app data-matcher 's)]
-         [a #'a]))
-     #`(base:#%app simple-tag-matcher*
-                   tagname
-                   (list #,@(map matcherify (syntax->list #'remaining))))]))
-
-(define-syntax with-tag
-  (syntax-parser
-    [(_ t:id e:expr)
-     #'(with-continuation-mark TAG-CM t
-       e)]))
+(define (simple-tag-matcher name . subs)
+  (simple-tag-matcher* name subs))
 
 (struct simple-tag-matcher* (tag-name sub-matchers)
   #:methods gen:matcher
@@ -230,7 +110,27 @@
        [else (bail-out #f)]))])
 
 (define TAG-CM 'tag)
+
+
+(define/contract (ms-pop&assign ms name)
+  (-> match-state? symbol? (or/c match-state? false?))
+  (define-values (state ele) (ms-pop-remain ms))
+  (cond
+    [ele
+     (define path (reverse (extract-current-continuation-marks TAG-CM)))
+     (define mdm (match-state-mdm state))
+     (define remain (match-state-remain state))
+     (match-state (mdm-join mdm (mdm-with [name (match-data path (xml->string ele))]))
+                  remain)]
+    [else #f]))
+
 (define (extract-current-continuation-marks key)
   (continuation-mark-set->list
    (current-continuation-marks)
    key))
+
+(define-syntax with-tag
+  (syntax-parser
+    [(_ t:id e:expr)
+     #'(with-continuation-mark TAG-CM t
+       e)]))

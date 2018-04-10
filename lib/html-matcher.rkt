@@ -6,9 +6,10 @@
          "multi-diff-map.rkt")
 
 (provide
- ordered-sub-pat-matcher
- top-level-anchored-matcher
+
+ content/c
  content?
+
  has-tag?
  xml/list->string
  xml-content
@@ -19,8 +20,6 @@
  xml->string
  content-content
  splicing-let
- ms-empty
- build-ms
  doc-from-file
  decompose-element)
 
@@ -158,153 +157,6 @@
   (and (element? xml) (element-name xml)))
 
 
-;; Matcher MDiffMap [Listof Xml] -> MDiffMap
-;; Folds the given matcher over the given list of xml's
-;; if any provide a match
-(define (match/foldl matcher parent xmls)
-  (define (folder nxt acc)
-    (ms-add-child acc (matcher ms-empty nxt)))
-  (foldl folder parent xmls))
-
-;; From: https://docs.racket-lang.org/reference/contmarks.html
-(define (extract-current-continuation-marks key)
-  (continuation-mark-set->list
-   (current-continuation-marks)
-   key))
-
-
-(define-for-syntax (fixup-syntax-list l)
-  (cond
-    [(and (list? l) (pair? l)) #`(cons #,(car l) #,(fixup-syntax-list (cdr l)))]
-    [(and (pair? l) (pair? (cdr l)))
-     #`(cons #,(car l) #,(fixup-syntax-list (cdr l)))]
-    [(pair? l)
-     #`(cons #,(car l) #,(cdr l))]
-    [else #'null]))
-
-(define TOP-LEVEL-CM 'top-level)
-(define TAG-CM 'tag)
-(define-syntax (define-match-maker stx)
-  (syntax-parse stx
-    [(_ (~kw-with-default #:acc-name acc-name (format-id stx "acc"))
-        (~kw-with-default #:disable-self-app dsa #'#f)
-        (fname:id . args)
-        [((~datum nest-tag) tname nxt-xmls)
-         the-kw-args1:kw-arg ...
-         body1 ...] ...
-        [((~datum leaf-tag) dname)
-         the-kw-args2:kw-arg ...
-         body2 ...] ...)
-     (define +args (if (pair? (syntax->datum #'args)) (syntax-e #'args) (list #'args)))
-     (define argsl (fixup-syntax-list +args))
-     #`(define (fname #,@+args)
-         (define (the-match #,@+args)
-           (define (self)
-             (λ (acc-name cur-lvl)
-               (define self-app? (should-self-apply?))
-               (match cur-lvl
-                 [(nest-tag tname nxt-xmls)
-                  the-kw-args1.pair ... ...
-                  (with-continuation-mark TAG-CM tname
-                    (let ([the-ans
-                           ; Always apply the top-level mark, will duplicate but whatever
-                           (with-continuation-mark TOP-LEVEL-CM #t
-                             ((λ () body1 ...)))])
-                      (if (and (not dsa) self-app?)
-                          (match/foldl (self) the-ans (filter nest-tag? (map as-lvl nxt-xmls)))
-                          the-ans)))] ...
-                 [(leaf-tag dname)
-                  the-kw-args2.pair ... ...
-                  body2 ...] ...)))
-           (self))
-         (define the-fun (apply the-match #,argsl))
-         (λ (acc next-xmls)
-           (the-fun acc (as-lvl next-xmls))))]))
-
-
-(define (should-self-apply?)
-  (empty? (extract-current-continuation-marks TOP-LEVEL-CM)))
-
-(define (as-lvl xml)
-  (define t (get-tag xml))
-  (if t (nest-tag t (xml-content xml)) (leaf-tag xml)))
-
-(define (add-or-perform-sub content-matcher acc remain #:as-child [as-child? #t])
-  (if (symbol? content-matcher)
-      (set-match acc content-matcher remain #:as-child as-child?)
-      (match/foldl content-matcher acc remain)))
-
-(define-match-maker (ordered-sub-pat-matcher ele . subs)
-  [(nest-tag tag-name sub-xmls)
-   #:when (and (equal? (length sub-xmls) (length subs))
-               (eq? ele tag-name))
-   (let/cc bail
-     (define (fail) (bail acc))
-     (define (fold-one nxt-fun nxt-xml acc)
-       (cond
-         [(symbol? nxt-fun)
-          (set-match acc nxt-fun nxt-xml)]
-         [else
-          (define the-ans (nxt-fun ms-empty nxt-xml))
-          (if (or (not (ms-no-remaining? the-ans))
-                  (ms-empty? the-ans))
-              (fail)
-              (foldl ms-join acc (ms-get-children the-ans)))]))
-     (foldl fold-one acc subs sub-xmls))]
-  [(nest-tag tag-name sub-xmls) acc]
-  [(leaf-tag tag-data) acc])
-
-(define (wildcard-matcher #:greedy [greedy? #t] . sub-matchers )
-  (define/contract (attempt-match xmls back-off acc)
-    (-> (listof content/c) match-state? (or/c false? match-state?))
-    (define save (+ (length sub-matchers) back-off))
-    (cond
-      [(< (length xmls) save) #f]
-      [else
-        (define to-check (drop xmls (- (length xmls) save)))
-        (define remaining (take xmls (length sub-matchers)))
-        (define match-results
-          (for/list ([xml remaining]
-                     [matcher sub-matchers])
-            (matcher ms-empty (list xml) ; TODO, should be pushing this list at the end (not shifting)
-                     ; all remainings need to be placed in this thing for the last matcher (works for tail wildcard.)
-                     )))
-        (and (andmap (compose not ms-empty?) match-results)
-             (foldl ms-join ms-empty match-results))]))
-  (void))
-
-;; This one doesn't self apply
-;; So it will only continue if it matches starting at the top level.
-(define-match-maker
-  #:disable-self-app #t
-  (top-level-anchored-matcher ele sub)
-  [(nest-tag name sub-xmls)
-   #:when (not ele) ; an "always match"
-   (set-match acc sub sub-xmls)]
-  [(nest-tag name sub-xmls) ; a "match a tag"
-   #:when (and (procedure? sub)
-               (symbol=? name ele))
-   (match/foldl sub acc sub-xmls)]
-  [(nest-tag name sub-xmls) ; a "match a tag"
-   #:when (and (symbol? sub)
-               (symbol=? name ele))
-   (set-match acc sub sub-xmls)]
-  [(nest-tag name sub-xmls) acc]
-  [(leaf-tag dat)
-   #:when (not ele)
-   (set-match acc sub dat)]
-  [(leaf-tag dat) acc])
-
-(define (set-match ms name dat #:as-child [as-child? #t])
-  (define path (reverse (extract-current-continuation-marks TAG-CM)))
-  (define dat-as-string
-    (if (list? dat) (xml/list->string dat) (xml->string dat)))
-  (if as-child?
-      (ms-add-child
-       ms
-       (ms-of name (match-data path dat-as-string)))
-      (ms-set ms name dat)))
-
 ;; Xml -> String
 ;; Converter from xml to string repr
 (define xml->string (compose xexpr->string xml->xexpr))
@@ -325,34 +177,3 @@
 ;; Converter from strings to xml repr
 (define string->xml/element
   (compose document-element read-xml/document open-input-string))
-
-(define ms-empty (match-state '() mdm-empty))
-(define ms-no-remaining? (compose empty? match-state-remain))
-(define/contract (ms-empty? x)
-  (-> match-state? boolean?)
-  (eq? ms-empty x))
-(define/contract (ms-get-children ms)
-  (-> match-state? (listof match-state?))
-  (map
-   (λ (x) (match-state '() x))
-   ((compose mdm-get-children match-state-mdm) ms)))
-(define/contract (ms-join ms1 ms2)
-  (-> match-state? match-state? match-state?)
-  (match-define (match-state r1 m1) ms1)
-  (match-define (match-state r2 m2) ms2)
-  (match-state
-   (append r1 r2)
-   (mdm-join m1 m2)))
-(define/contract (ms-add-child ms c)
-  (-> match-state? match-state? match-state?)
-  (match-state
-   (match-state-remain ms)
-   (mdm-add-child (match-state-mdm ms) (match-state-mdm c))))
-(define/contract (ms-set ms k v)
-  (-> match-state? any/c any/c match-state?)
-  (match-define (match-state r m) ms)
-  (match-state r (mdm-set m k v)))
-(define/contract (ms-of k v)
-  (-> any/c any/c match-state?)
-  (match-state '() (mdm-with [k v])))
-(define build-ms (compose build-mdm match-state-mdm))

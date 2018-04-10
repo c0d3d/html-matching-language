@@ -1,7 +1,8 @@
 #lang racket
 
-(require (for-syntax syntax/parse racket/syntax))
-(require (except-in "html-matcher.rkt" ms-empty build-ms)
+(require (for-syntax syntax/parse racket/syntax racket (only-in "matcher-lib.rkt" WILDCARD-SYM)))
+(require (for-template ))
+(require "html-matcher.rkt"
          "matcher-lib.rkt"
          "multi-diff-map.rkt"
          (prefix-in base: racket)
@@ -13,22 +14,29 @@
  string->xml/element
  (except-out (all-from-out xml "html-matcher.rkt") attribute))
 
+(define-for-syntax (select-matcher-for data)
+  (cond
+    [(ormap (λ (x . y) (eq? '* x)) data) #'(λ (x) x)]
+    [else #'simple-tag-matcher]))
+
+(define-for-syntax (parse-pattern stx)
+  (syntax-parse stx
+    [(~datum *) #'WILDCARD-SYM]
+    [((~datum quote) x) #'(data-matcher 'x)]
+    [(tag-name:id ((key:id val:expr) ...) contents:expr ...)
+     #:with matcher (select-matcher-for (syntax->datum stx))
+     #`(matcher 'tag-name
+                ((key val) ...)
+                #,@(map parse-pattern (syntax->list #'(contents ...))))]
+    [(tag-name:id contents:expr ...)
+     #:with matcher (select-matcher-for (syntax->datum stx))
+     #`(matcher 'tag-name
+                #,@(map parse-pattern (syntax->list #'(contents ...))))]
+    [s (error (syntax->datum #'s))]))
 
 ;; Compiles a pattern
 (define-for-syntax (make-pattern* stx)
-  (define (compile-pattern stx)
-    (syntax-parse stx
-      [(_ ((~datum quote) a:id))
-       #'(base:#%app quote a)]
-      [(_ tag:id inside:expr ...)
-       #'(simple-tag-matcher
-          'tag
-          inside ...)]))
-  (define app-name (format-id stx "#%app"))
-
-  (syntax-parse stx
-    [arg:expr
-     #`(let-syntax ([#,app-name #,compile-pattern]) arg)]))
+  (parse-pattern stx))
 
 ;; Syntax version of the compile time function
 (define-syntax (make-pattern stx)
