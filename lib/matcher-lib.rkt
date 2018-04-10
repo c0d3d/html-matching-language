@@ -37,6 +37,17 @@
   (values (match-state mdm (append content remain))
           (length remain)))
 
+
+(define bail (make-parameter #f))
+(define (bail-out x)
+  ((bail) x))
+(define-syntax bail-to-fail
+  (syntax-parser
+    [(_ x ...)
+     #'(let/cc k
+         (parameterize ([bail k])
+           x ...))]))
+
 (define (merge-state-results s1 s2)
   (and s1 s2 (ms-join s1 s2)))
 
@@ -132,19 +143,18 @@
   (->* ((listof matcher?) match-state?) (#:strict boolean?) (or/c match-state? false?))
   (define/contract (apply-single* matcher cur-state)
     (-> matcher? (or/c match-state? false?) (or/c false? match-state?))
-    (and cur-state (attempt-match matcher cur-state)))
+    (and cur-state (bail-to-fail (attempt-match matcher cur-state))))
   (define (apply-single matcher acc)
     (define ans (apply-single* matcher acc))
     (or ans
-        (and (not is-strict?) (let-values ([(acc _) (ms-pop-remain acc)]) acc)))
-    #;(and acc (apply-single* matcher acc)))
-  (define application (foldl apply-single state matchers))
-  application)
+        (and (not is-strict?)
+             (let-values ([(acc _) (ms-pop-remain acc)])
+               acc))))
+  (foldl apply-single state matchers))
 
 (define (apply-to-completion -matcher xmls)
-  (define matcher (if (symbol? -matcher)
-                      (data-matcher -matcher)
-                      -matcher))
+  (define matcher
+    (if (symbol? -matcher) (data-matcher -matcher) -matcher))
   (define (apply-to-completion* ele)
     (match ele
       [(? get-tag x)
@@ -163,7 +173,7 @@
       ;; in state has some remaining?
       [(not ans) #f]
       [else (ms-add-child parent ans)]))
-  (define main-ans (drain-into ms-empty init-state))
+  (define main-ans (bail-to-fail (drain-into ms-empty init-state)))
   (define actual-ans-list (cons main-ans (map apply-to-completion* xmls)))
   (define condensed-ans
     (foldl (λ (nxt state) (if nxt (ms-add-child nxt state) state))
@@ -217,24 +227,9 @@
              (equal? (ms-remain-length final-state)
                      old-length)
              final-state)]
-       [else #f]))])
+       [else (bail-out #f)]))])
 
 (define TAG-CM 'tag)
-(define TAG-TL 'top-level)
-
-(define (set-match ms name dat [remain #f] #:as-child [as-child? #t])
-  (define path (reverse (extract-current-continuation-marks TAG-CM)))
-  (define dat-as-string
-    (if (list? dat) (xml/list->string dat) (xml->string dat)))
-  (define new-state
-    (match-state (mdm-with [name (match-data path dat-as-string)]) '()))
-  (if as-child?
-      (ms-add-child ms new-state)
-      (let ([joined (ms-join ms new-state)])
-        (if remain
-            (ms-set-remain joined remain)
-            joined))))
-
 (define (extract-current-continuation-marks key)
   (continuation-mark-set->list
    (current-continuation-marks)
