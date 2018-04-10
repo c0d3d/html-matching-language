@@ -4,21 +4,23 @@
          "html-matcher.rkt")
 
 (provide
+ build-ms
+ match-state
+ match-state-mdm
+ match-state-remain
+ match-state?
+ ms-add-child
+ ms-add-clean-child
+ ms-assign
+ ms-clone-remaining
  ms-empty
  ms-empty?
- build-ms
- ms-prepend-content
+ ms-has-remaining?
  ms-only-remain
  ms-pop-remain
- ms-clone-remaining
- ms-has-remaining?
- ms-add-clean-child
- ms-add-child
+ ms-prepend-content
  ms-remain-length
- match-state-remain
- match-state-mdm
- match-state?
- match-state)
+ )
 
 (struct match-state (acc xmls))
 (define ms-empty (match-state mdm-empty '()))
@@ -36,6 +38,11 @@
        (build-mdm acc)]
       [else '()]))
   result)
+
+(define (ms-assign ms k v)
+  (match-define (match-state mdm remain) ms)
+  (match-state (mdm-join mdm (mdm-with [k v]))
+               remain))
 
 (define/contract (ms-prepend-content ms content)
   (-> match-state? (listof content/c) (values match-state? natural?))

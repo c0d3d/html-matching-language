@@ -118,10 +118,8 @@
   (cond
     [ele
      (define path (reverse (extract-current-continuation-marks TAG-CM)))
-     (define mdm (match-state-mdm state))
-     (define remain (match-state-remain state))
-     (match-state (mdm-join mdm (mdm-with [name (match-data path (xml->string ele))]))
-                  remain)]
+     (define data (match-data path (xml->string ele)))
+     (ms-assign state name data)]
     [else #f]))
 
 (define (extract-current-continuation-marks key)
