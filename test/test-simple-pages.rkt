@@ -75,3 +75,84 @@
    'contents2 (h1 div p) "<h1><div><p>Wow</p></div></h1>")
   ('contents1 (h1 div p b s h1 div p) "<c>Hello</c>"
    'contents2 (h1 div p b s h1 div p) "<d>Goodbye</d>"))
+
+
+(test
+ 'hello
+ '(a (b (c "one")
+        (d "two"))
+    "three")
+ ('hello () "<a><b><c>one</c><d>two</d></b>three</a>")
+ ('hello (a) "three")
+ ('hello (a) "<b><c>one</c><d>two</d></b>")
+ ('hello (a b) "<d>two</d>")
+ ('hello (a b) "<c>one</c>")
+ ('hello (a b c) "one")
+ ('hello (a b d) "two"))
+
+
+(test
+ (a (b (c (d (e (f (g 'one))))))
+    (h (i (j (k (l (m 'two))))))
+    (b (c (d (e (f (g 'three)))))))
+ '(a (b (c (d (e (f (g "one"))))))
+     (h (i (j (k (l (m "two"))))))
+     (b (c (d (e (f (g "three")))))))
+ ('one   (a b c d e f g) "one"
+  'two   (a h i j k l m) "two"
+  'three (a b c d e f g) "three"))
+
+(test
+ (a (b (c (d (e (f (g 'one))))))
+    (h (i (j (k (l (m 'two))))))
+    (b (c (d (e (f (g 'three)))))))
+ '(a (b (c (d (e (f (g "one"))))))
+     (h (i (j (k (l (m "two" "oops"))))))
+     (b (c (d (e (f (g "three"))))))))
+
+(test
+ (a (a (a 'nested)))
+ '(c (a (a (d (a (b (a (a (a "three")
+                          (a (a (a "Nested"))))
+                       (a (a "one" "two")
+                          (a "three'"
+                             (a (a (a (a (a (a "Nested²")))))))
+                          (a (a "one" "two")
+                             (a "three''")
+                             (a (a (a "Nested 2"))))))))))))
+
+ ('nested (c a a d a b a a a a a) "Nested")
+ ('nested (c a a d a b a a a a a a) "<a><a><a>Nested²</a></a></a>")
+ ('nested (c a a d a b a a a a a a a) "<a><a>Nested²</a></a>")
+ ('nested (c a a d a b a a a a a a a a) "<a>Nested²</a>")
+ ('nested (c a a d a b a a a a a a a a a) "Nested²")
+ ('nested (c a a d a b a a a a a a) "Nested 2"))
+
+(test
+ (a (b 'one (c 'two))
+    'three)
+ '(a (b "1" (c "2"))
+    "3")
+ ('one (a b) "1"
+  'two (a b c) "2"
+  'three (a) "3"))
+
+
+(test
+ (a (b 'one (c 'two))
+    'three)
+ '(a (b "1" (c "2" "oops"))
+    "3"))
+
+(test
+ (a (b 'one (c 'two))
+    'three)
+ '(a (b "1" "2" (c "2"))
+    "3"))
+
+
+(test
+ (a (b 'one (c 'two))
+    'three)
+ '(a (d "1" (c "2" "oops"))
+    "3"))

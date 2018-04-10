@@ -92,6 +92,10 @@
   (match-define (match-state _ r) ms)
   (match-state mdm-empty r))
 
+(define (ms-remain-length ms)
+  (match-define (match-state _ r) ms)
+  (length r))
+
 
 ;; Joins the given match-states
 ;; appends xmls, join's acc's
@@ -141,24 +145,20 @@
   ;(displayln (format "App-Matchers-Out: ~a" application))
   application)
 
-(define (apply-to-completion matcher xmls)
-  (define (fix-result-state a-state)
-    ;(displayln (format "Before-Fix: ~a" a-state))
-    ;(displayln (format "After-Fix: ~a" (and a-state (not (ms-has-remaining? a-state)) a-state)))
-    (and a-state))
+(define (apply-to-completion -matcher xmls)
+  (define matcher (if (symbol? -matcher)
+                      (data-matcher -matcher)
+                      -matcher))
   (define (apply-to-completion* ele)
     (match ele
       [(? get-tag x)
        (define-values (tag contents) (decompose-element x))
-       (define out-state
-         (with-tag tag (apply-to-completion matcher contents)))
-       out-state]
+       (with-tag tag (apply-to-completion matcher contents))]
       [else #f]))
   (define init-state (ms-only-remain xmls))
   (define (drain-into parent state)
     (define new-state (ms-clone-remaining state))
     (define ans (apply-matchers (list matcher) new-state))
-    ;(displayln (format "Parent&Nxt: \n- ~a\n- ~a\n- ~a" parent ans state))
     (cond
       [(and ans (ms-has-remaining? ans))
        (drain-into (ms-add-clean-child parent ans) ans)]
@@ -168,7 +168,6 @@
       [(not ans) #f]
       [else (ms-add-child parent ans)]))
   (define main-ans (drain-into ms-empty init-state))
-  ;(displayln (format "Completion-Ans: ~a" main-ans))
   (define actual-ans-list (cons main-ans (map apply-to-completion* xmls)))
   (define condensed-ans
     (foldl (λ (nxt state) (if nxt (ms-add-child nxt state) state))
@@ -214,14 +213,14 @@
        [(? tag=? (? attributes=? (? content-len=? the-ele)))
         (define-values (pre-state old-length)
           (ms-prepend-content post-state (xml-content the-ele)))
-        ;(displayln (format "Pre-State: ~a" pre-state))
         (define (next-matcher matcher state)
           (and state (apply-matchers (list matcher) state)))
         (define final-state
           (with-tag my-name (foldl next-matcher pre-state my-subs)))
-        ;; TODO, not sure if we want to enfore this?
-        ;; (equal? (length (ms-remain-length final-state) old-length))
-        final-state]
+        (and final-state
+             (equal? (ms-remain-length final-state)
+                     old-length)
+             final-state)]
        [else #f]))])
 
 (define TAG-CM 'tag)
