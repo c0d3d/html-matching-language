@@ -50,6 +50,13 @@
  ('content1 (a b a b) "Hello"
   'content2 (a b a b) "World!"))
 
+(test
+ (a 'hello)
+ '(b (a "1") (a "2" (a "3")) (a "4"))
+ ('hello (b a) "4")
+ ('hello (b a) "1")
+ ('hello (b a a) "3"))
+
 #;(test
  3-ordered
  '(a (a (b "one")

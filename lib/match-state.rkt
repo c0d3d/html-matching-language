@@ -5,22 +5,19 @@
 
 (provide
  build-ms
- match-state
- match-state-mdm
- match-state-remain
  match-state?
  ms-add-child
  ms-add-clean-child
  ms-assign
  ms-clone-remaining
+ ms-drop-remain
  ms-empty
  ms-empty?
  ms-has-remaining?
  ms-only-remain
  ms-pop-remain
  ms-prepend-content
- ms-remain-length
- )
+ ms-remain-length)
 
 (struct match-state (acc xmls))
 (define ms-empty (match-state mdm-empty '()))
@@ -71,6 +68,10 @@
 (define (ms-set-remain ms remain)
   (match-define (match-state a _) ms)
   (match-state a remain))
+
+(define (ms-drop-remain ms)
+  (match-define (match-state a _) ms)
+  (match-state a '()))
 
 (define (state-no-remaining? ms)
   (and (match-state? ms) (empty? (match-state-xmls ms))))

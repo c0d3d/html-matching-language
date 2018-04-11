@@ -8,27 +8,20 @@
 
 (provide
  attempt-match
+ always-match
  simple-tag-matcher
+ wildcard-matcher
  data-matcher
  ms-empty
  build-ms
- apply-to-completion
- WILDCARD-SYM)
+ apply-to-completion)
 
-(define WILDCARD-SYM (gensym 'wildcard))
 
+(define TAG-CM 'tag)
 (define bail (make-parameter #f))
+
 (define (bail-out x)
   ((bail) x))
-(define-syntax bail-to-fail
-  (syntax-parser
-    [(_ x ...)
-     #'(let/cc k
-         (parameterize ([bail k])
-           x ...))]))
-
-#;(define (merge-state-results s1 s2)
-  (and s1 s2 (ms-join s1 s2)))
 
 (define-generics matcher
   ; Matcher MatchState -> (Or False MatchState)
@@ -81,7 +74,7 @@
 (struct data-matcher (name)
   #:methods gen:matcher
   [(define (attempt-match self acc)
-     (ms-pop&assign acc (data-matcher-name self)))])
+     (pop&assign acc (data-matcher-name self)))])
 
 (define (simple-tag-matcher name . subs)
   (simple-tag-matcher* name subs))
@@ -109,10 +102,23 @@
              final-state)]
        [else (bail-out #f)]))])
 
-(define TAG-CM 'tag)
+
+(struct always-matcher* ()
+  #:methods gen:matcher
+  [(define (attempt-match self state)
+     (ms-drop-remain state))])
+
+(define always-match (always-matcher*))
+
+(define (wildcard-matcher name . subs) (wildcard-matcher* name subs))
+
+(struct wildcard-matcher* (name subs)
+  #:methods gen:matcher
+  [(define (attempt-match self state)
+     #f)])
 
 
-(define/contract (ms-pop&assign ms name)
+(define/contract (pop&assign ms name)
   (-> match-state? symbol? (or/c match-state? false?))
   (define-values (state ele) (ms-pop-remain ms))
   (cond
@@ -131,4 +137,11 @@
   (syntax-parser
     [(_ t:id e:expr)
      #'(with-continuation-mark TAG-CM t
-       e)]))
+         e)]))
+
+(define-syntax bail-to-fail
+  (syntax-parser
+    [(_ x ...)
+     #'(let/cc k
+         (parameterize ([bail k])
+           x ...))]))

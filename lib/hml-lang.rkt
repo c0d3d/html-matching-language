@@ -1,7 +1,6 @@
 #lang racket
 
-(require (for-syntax syntax/parse racket/syntax racket (only-in "matcher-lib.rkt" WILDCARD-SYM)))
-(require (for-template ))
+(require (for-syntax syntax/parse racket/syntax racket))
 (require "html-matcher.rkt"
          "matcher-lib.rkt"
          "multi-diff-map.rkt"
@@ -16,12 +15,12 @@
 
 (define-for-syntax (select-matcher-for data)
   (cond
-    [(ormap (λ (x . y) (eq? '* x)) data) #'(λ (x) x)]
+    [(ormap (λ (x . y) (eq? '* x)) data) #'wildcard-matcher]
     [else #'simple-tag-matcher]))
 
 (define-for-syntax (parse-pattern stx)
   (syntax-parse stx
-    [(~datum *) #'WILDCARD-SYM]
+    [(~datum *) #'always-match]
     [((~datum quote) x) #'(data-matcher 'x)]
     [(tag-name:id ((key:id val:expr) ...) contents:expr ...)
      #:with matcher (select-matcher-for (syntax->datum stx))
