@@ -7,14 +7,13 @@
          (prefix-in base: racket))
 
 (provide
- attempt-match
+ get-consume-range
  always-match
  simple-tag-matcher
  wildcard-matcher
  data-matcher
- ms-empty
- build-ms
- apply-to-completion)
+ apply-to-completion
+ always-match?)
 
 
 (define TAG-CM 'tag)
@@ -25,7 +24,13 @@
 
 (define-generics matcher
   ; Matcher MatchState -> (Or False MatchState)
-  [attempt-match . (matcher acc)])
+  [attempt-match . (matcher acc)]
+  ; Matcher -> (Cons (Or Nat #f) (Or Nat #f))
+  ; Provides the range of Nat's that are valid to consume
+  ; for the given matcher
+  ; Range is [low high)
+  ; #f indicates no limit on that side of the interval.
+  [get-consume-range . (matcher)])
 
 (define/contract (apply-matchers matchers state #:strict [is-strict? #f])
   (->* ((listof matcher?) match-state?) (#:strict boolean?) (or/c match-state? false?))
@@ -100,22 +105,33 @@
              (equal? (ms-remain-length final-state)
                      old-length)
              final-state)]
-       [else (bail-out #f)]))])
+       [else (bail-out #f)]))
+   (define (get-consume-range this) (cons 1 2))])
 
 
 (struct always-matcher* ()
   #:methods gen:matcher
   [(define (attempt-match self state)
-     (ms-drop-remain state))])
+     (ms-drop-remain state))
+  (define (get-consume-range this) (cons #f #f))])
 
 (define always-match (always-matcher*))
+(define (always-match? m)
+  (eq? m always-match))
 
 (define (wildcard-matcher name . subs) (wildcard-matcher* name subs))
 
 (struct wildcard-matcher* (name subs)
   #:methods gen:matcher
   [(define (attempt-match self state)
-     #f)])
+     #f)
+   (define (get-consume-range this)
+     (define (select-range x)
+       (and (not (always-match? x))
+            (car (get-consume-range x))))
+     (define min
+       (foldl + 0 (filter-map select-range (wildcard-matcher*-subs this))))
+     (cons min #f))])
 
 
 (define/contract (pop&assign ms name)

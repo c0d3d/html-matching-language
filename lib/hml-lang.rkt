@@ -3,7 +3,7 @@
 (require (for-syntax syntax/parse racket/syntax racket))
 (require "html-matcher.rkt"
          "matcher-lib.rkt"
-         "multi-diff-map.rkt"
+         "match-state.rkt"
          (prefix-in base: racket)
          xml)
 (provide
