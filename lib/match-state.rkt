@@ -5,6 +5,7 @@
 
 (provide
  build-ms
+ match-state-remain
  match-state?
  ms-add-child
  ms-add-clean-child

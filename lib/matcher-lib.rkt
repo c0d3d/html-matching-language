@@ -3,11 +3,16 @@
 (require (for-syntax syntax/parse
                      syntax/quote
                      ))
-(require racket/generic "html-matcher.rkt" "multi-diff-map.rkt" "match-state.rkt" xml
+(require "html-matcher.rkt"
+         "multi-diff-map.rkt"
+         "match-state.rkt"
+         "wildcard-expander.rkt"
+         "matcher-def.rkt"
+         xml
+         racket/generic
          (prefix-in base: racket))
 
 (provide
- get-consume-range
  always-match
  simple-tag-matcher
  wildcard-matcher
@@ -21,16 +26,6 @@
 
 (define (bail-out x)
   ((bail) x))
-
-(define-generics matcher
-  ; Matcher MatchState -> (Or False MatchState)
-  [attempt-match . (matcher acc)]
-  ; Matcher -> (Cons (Or Nat #f) (Or Nat #f))
-  ; Provides the range of Nat's that are valid to consume
-  ; for the given matcher
-  ; Range is [low high)
-  ; #f indicates no limit on that side of the interval.
-  [get-consume-range . (matcher)])
 
 (define/contract (apply-matchers matchers state #:strict [is-strict? #f])
   (->* ((listof matcher?) match-state?) (#:strict boolean?) (or/c match-state? false?))
@@ -79,7 +74,8 @@
 (struct data-matcher (name)
   #:methods gen:matcher
   [(define (attempt-match self acc)
-     (pop&assign acc (data-matcher-name self)))])
+     (pop&assign acc (data-matcher-name self)))
+   (define (get-consume-range self) (cons 1 2))])
 
 (define (simple-tag-matcher name . subs)
   (simple-tag-matcher* name subs))
@@ -123,15 +119,34 @@
 
 (struct wildcard-matcher* (name subs)
   #:methods gen:matcher
-  [(define (attempt-match self state)
-     #f)
-   (define (get-consume-range this)
+  [(define/generic gen-range get-consume-range)
+   (define (attempt-match self state)
+     ;; TODO state
+     (match-define (wildcard-matcher* name subs) self)
+     (define remaining (match-state-remain state))
+     (define i-allow-zero?
+       (let ([r (get-consume-range self)])
+         (or (not (car r)) (equal? 0 (car r)))))
+     (cond
+       [(and i-allow-zero? (empty? (match-state-remain state))) state]
+       [(empty? (match-state-remain state)) #f]
+       [else
+        (define wildcard-tree
+          (handle-next (list self) (match-state-remain state)))
+        (define results (perform-match-tree wildcard-tree (match-state-remain state)))
+        (displayln (format "Perform-Match-Results: ~a" results))
+        (and results (ms-add-child state results))])) ; TODO one wildcard child next to another ...
+   (define (get-consume-range self)
      (define (select-range x)
        (and (not (always-match? x))
-            (car (get-consume-range x))))
+            (car (gen-range x))))
      (define min
-       (foldl + 0 (filter-map select-range (wildcard-matcher*-subs this))))
-     (cons min #f))])
+       (foldl + 0 (filter-map select-range (wildcard-matcher*-subs self))))
+     (define max
+       (if (ormap always-match? (wildcard-matcher*-subs self))
+           #f
+           (length (wildcard-matcher*-subs self))))
+     (cons min max))])
 
 
 (define/contract (pop&assign ms name)
