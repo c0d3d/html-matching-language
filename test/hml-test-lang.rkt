@@ -2,16 +2,17 @@
 
 (require (for-syntax syntax/parse
                      racket
-                     "../lib/hml-lang.rkt"))
-(require "../lib/multi-diff-map.rkt"
-         "../lib/hml-lang.rkt"
+                     "../lib/hml-lang.rkt")
+         xml)
+(require "../lib/hml-lang.rkt"
          rackunit)
 
 (provide
- (all-from-out
-  racket
-  rackunit
-  "../lib/hml-lang.rkt"))
+ (except-out (all-from-out racket
+                           rackunit
+                           "../lib/hml-lang.rkt"
+                           xml)
+             attribute))
 
 (provide test)
 
@@ -21,4 +22,5 @@
      (syntax/loc stx
        (check-equal?
         (match/html m (xexpr->xml xml) mm)
-        (list (make-immutable-hash (list (cons k (match-data (list 'path ...) v)) ...)) ...)))]))
+        (list (make-immutable-hash
+               (list (cons k (match-data (list 'path ...) v)) ...)) ...)))]))

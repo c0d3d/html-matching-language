@@ -21,6 +21,10 @@
   (list (cons m1 m1.path) (cons m2 m2.path)))
  '())
 
+; Test for syntax error message
+; (define m 1)
+; (match/html m (a) '() (list a))
+
 (check-equal?
  (match/html
   (a (b (c (d 'one 'two) 'three)

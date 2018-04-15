@@ -1,9 +1,6 @@
 #lang racket
 
-(require (for-syntax racket/syntax "html-matcher-syntax.rkt" syntax/parse)
-         xml
-         racket/splicing
-         "multi-diff-map.rkt")
+(require xml)
 
 (provide
 
@@ -21,8 +18,6 @@
  get-tag
  xml->string
  content-content
- splicing-let
- doc-from-file
  decompose-element)
 
 ;; A Xml is one of:
@@ -94,15 +89,7 @@
 ;; - Symbol
 ;; - Matcher
 
-;; an XmlPred is a (Xml -> Boolean)
-
-(define (doc-from-file path)
-  (document-element (call-with-input-file path read-xml)))
-
 (struct match-data (path text) #:transparent)
-(struct nest-tag (sym contents) #:transparent)
-(struct leaf-tag (data) #:transparent)
-(struct match-state (remain mdm))
 
 ; Note: these are missing the unsupported
 ; xml type (p-i)

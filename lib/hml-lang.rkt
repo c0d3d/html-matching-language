@@ -1,23 +1,27 @@
 #lang racket
 
-(require (for-syntax syntax/parse racket/syntax racket syntax/stx))
+(require (for-syntax syntax/parse racket/syntax racket))
 (require "html-matcher.rkt"
          "matcher-lib.rkt"
          "match-state.rkt"
-         (prefix-in base: racket)
-         xml)
+         (prefix-in base: racket))
 (provide
  (for-syntax make-pattern*)
  make-pattern
  match/html
  string->xml/element
- (except-out (all-from-out xml "html-matcher.rkt") attribute))
+ (all-from-out "html-matcher.rkt"))
 
+;; Decides which matcher to use based on the
+;; pased in s-exp. The value passed in is a syntax->datum of
+;; a pattern (either sub, or top level).
 (define-for-syntax (select-matcher-for data)
   (cond
     [(ormap (λ (x . y) (eq? '* x)) data) #'wildcard-matcher]
     [else #'simple-tag-matcher]))
 
+;; Parses out a pattern into the code that will construct
+;; proper patterns (via their struct constructors)
 (define-for-syntax (parse-pattern stx)
   (syntax-parse stx
     [(~datum *) #'always-match]
@@ -30,29 +34,28 @@
     [(tag-name:id contents:expr ...)
      #:with matcher (select-matcher-for (syntax->datum stx))
      #`(matcher 'tag-name
-                #,@(map parse-pattern (syntax->list #'(contents ...))))]
-    [s (error (syntax->datum #'s))]))
+                #,@(map parse-pattern (syntax->list #'(contents ...))))]))
 
-;; Compiles a pattern
+;; Compiles a pattern (compile time function version).
 (define-for-syntax (make-pattern* stx)
   (parse-pattern stx))
 
-;; Syntax version of the compile time function
+;; Syntax version of the pattern parser.
 (define-syntax (make-pattern stx)
   (syntax-parse stx
     [(_ a)
      (make-pattern* #'a)]))
 
+(define-for-syntax ERR-MSG
+  (string-append
+   "Unbound identifier. "
+   "If you are trying to access pattern variables you must use a literal pattern."))
 
 (define-for-syntax (check-name allowed stx)
   (unless (and (identifier? stx)
-               (member (syntax-e stx) allowed))
-    (define msg
-      (string-append
-       "Unbound identifier inside match/html. "
-       "If you are trying to access pattern variables you must use a literal pattern, and "
-       "have a pattern variable with the correct name."))
-    (raise-syntax-error #f msg stx)))
+               (or (identifier-binding stx)
+                   (member (syntax-e stx) allowed)))
+    (raise-syntax-error #f ERR-MSG stx)))
 
 (define-for-syntax (collect-pattern-vars stx)
   (syntax-parse stx
@@ -77,7 +80,10 @@
             acc (syntax->list #'(a ...)))]
     [x (f #'x acc)]))
 
-; (identifier-binding id-stx)
+;; Our matching form
+;; Consumes either an inlined pattern, or an identifier which references
+;; a pattern, the document itself, and body expressions which will be run for
+;; each match.
 (define-syntax (match/html stx)
   (syntax-parse stx
     [(_ pat:id doc:expr body:expr ...)
