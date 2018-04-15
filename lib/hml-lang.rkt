@@ -1,6 +1,6 @@
 #lang racket
 
-(require (for-syntax syntax/parse racket/syntax racket))
+(require (for-syntax syntax/parse racket/syntax racket syntax/stx))
 (require "html-matcher.rkt"
          "matcher-lib.rkt"
          "match-state.rkt"
@@ -43,13 +43,65 @@
     [(_ a)
      (make-pattern* #'a)]))
 
+
+(define-for-syntax (check-name allowed stx)
+  (unless (and (identifier? stx)
+               (member (syntax-e stx) allowed))
+    (define msg
+      (string-append
+       "Unbound identifier inside match/html. "
+       "If you are trying to access pattern variables you must use a literal pattern, and "
+       "have a pattern variable with the correct name."))
+    (raise-syntax-error #f msg stx)))
+
+(define-for-syntax (collect-pattern-vars stx)
+  (syntax-parse stx
+    [((~datum quote) e:id) (list (syntax-e #'e))]
+    [(i:id ((key:id val:expr) ...) a ...)
+     ; For now we cut out the extra
+     (collect-pattern-vars #'(i a ...))]
+    [(_:id a ...)
+     (define (folder nxt acc)
+       (append (collect-pattern-vars nxt) acc))
+     (foldl folder '() (syntax->list #'(a ...)))]
+    [x:number (list)]
+    [x:id (list (syntax-e #'x))]
+    [_ (list)]))
+
+(define-for-syntax (stx-tfoldl f acc sl)
+  (syntax-parse sl
+    [((~datum quote) _) acc]
+    [(a ...)
+     (define folder (curry stx-tfoldl))
+     (foldl (λ (nxt acc) (stx-tfoldl f acc nxt))
+            acc (syntax->list #'(a ...)))]
+    [x (f #'x acc)]))
+
+; (identifier-binding id-stx)
 (define-syntax (match/html stx)
   (syntax-parse stx
-    [(_ pat:id doc:expr body:expr)
+    [(_ pat:id doc:expr body:expr ...)
      #:with mm-name (format-id stx "mm")
-     #`(for/list ([mm-name (build-ms (apply-to-completion pat (list doc)))])
-         body)]
-    [(_ pat:expr doc:expr body:expr)
+     (define allowed-names (list (syntax-e #'mm-name)))
+     (stx-tfoldl (λ (x _) (check-name allowed-names x))
+                 (void)
+                 #'(body ...))
+     #'(for/list ([mm-name (build-ms (apply-to-completion pat (list doc)))])
+         body ...)]
+    [(_ pat:expr doc:expr body:expr ...)
      #:with mm-name (format-id stx "mm")
-     #`(for/list ([mm-name (build-ms (apply-to-completion (make-pattern pat) (list doc)))])
-         body)]))
+     #:attr pvars (collect-pattern-vars #'pat)
+     #:attr (allowed-names-id 1) (map (λ (x) (format-id stx "~a" x))
+                                       (attribute pvars))
+     #:attr (allowed-names-path-id 1) (map (λ (x) (format-id stx "~a.path" x))
+                                           (attribute pvars))
+     #'(let* ([complete (apply-to-completion (make-pattern pat) (list doc))]
+              [built (build-ms complete)])
+         (for/list ([mm-name built])
+           (let ([allowed-names-id
+                  (match-data-text
+                   (hash-ref mm-name 'allowed-names-id))] ...
+                 [allowed-names-path-id
+                  (match-data-path
+                   (hash-ref mm-name 'allowed-names-id))] ...)
+                 body ...)))]))

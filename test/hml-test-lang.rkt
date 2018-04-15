@@ -13,12 +13,12 @@
   rackunit
   "../lib/hml-lang.rkt"))
 
-(provide
- test)
+(provide test)
 
 (define-syntax (test stx)
   (syntax-parse stx
     [(_ m:expr xml ((~seq k:expr (path:expr ...) v:expr) ...) ...)
-     #'(check-equal?
+     (syntax/loc stx
+       (check-equal?
         (match/html m (xexpr->xml xml) mm)
-        (list (make-immutable-hash (list (cons k (match-data (list 'path ...) v)) ...)) ...))]))
+        (list (make-immutable-hash (list (cons k (match-data (list 'path ...) v)) ...)) ...)))]))

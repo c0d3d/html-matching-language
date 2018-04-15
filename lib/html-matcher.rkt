@@ -14,6 +14,8 @@
  xml/list->string
  xml-content
  match-data
+ match-data-path
+ match-data-text
  string->xml/element
  xexpr->xml/element
  get-tag

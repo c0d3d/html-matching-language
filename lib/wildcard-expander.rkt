@@ -10,45 +10,36 @@
 (struct wcnode (mtch children) #:transparent)
 
 (define (only1? x)
-  (define ans
-    (and (car x)
-         (cdr x)
-         (eq? 1 (- (cdr x)
-                   (car x)))))
-  ans)
+  (and (car x)
+       (cdr x)
+       (eq? 1 (- (cdr x)
+                 (car x)))))
 
 (define (handle-next remain-mchs eles)
-  (displayln (format "Remaining: ~a" (length remain-mchs)))
-  (define ans
-    (cond
-      [(empty? remain-mchs)
-       (displayln "None left !")
-       #f]
-      [(only1? (get-consume-range (first remain-mchs)))
-       (define nxt (handle-next (rest remain-mchs) (rest eles)))
-       (wcnode (first remain-mchs)
-               (if nxt (stream (cons 1 nxt)) empty-stream))]
-      [else
-       (match-define (cons low high) (get-consume-range (first remain-mchs)))
-       (define low+ (max 0 (or low 0)))
-       (define high+
-         (let ([max-len (add1 (length eles))])
-           (min max-len (or high max-len))))
-       (define finished-children
-         (for/fold ([children empty-stream])
-                   ([me-consume (range (sub1 high+) (- low+ 2) -1)])
+  (cond
+    [(empty? remain-mchs)
+     (displayln "NONE LEFT!")
+     #f]
+    [(only1? (get-consume-range (first remain-mchs)))
+     (displayln "ONLY 1!")
+     (define nxt (handle-next (rest remain-mchs) (rest eles)))
+     (wcnode (first remain-mchs)
+             (if nxt (stream (cons 1 nxt)) empty-stream))]
+    [else
+     (match-define (cons low high) (get-consume-range (first remain-mchs)))
+     (define low+ (max 0 (or low 0)))
+     (define high+
+       (let ([max-len (add1 (length eles))])
+         (min max-len (or high max-len))))
+     (define finished-children
+       (for/stream ([me-consume (range (sub1 high+) (- low+ 2) -1)])
+         (cons me-consume (handle-next (rest remain-mchs) (drop eles me-consume)))))
+     (displayln (format "Finish-Children: ~a -> ~a \n~a\n"
+                        (first remain-mchs)
+                        (stream->list finished-children)
+                        eles))
+     (wcnode (first remain-mchs) finished-children)]))
 
-           (stream-cons
-            (begin
-              (displayln (format "Me-Consume: ~a" me-consume))
-              (cons me-consume
-                    (handle-next (rest remain-mchs) (drop eles me-consume))))
-            children)))
-       (define strm finished-children)
-       (displayln (format "Finished: ~a" (stream->list strm)))
-       (wcnode (first remain-mchs) strm)]))
-  (displayln (format "The-Ans: ~a" ans))
-  ans)
 
 (define (perform-match-tree wcn eles)
   (match-define (wcnode matcher cstream) wcn)
@@ -57,10 +48,10 @@
       (match child
         [(cons my-count nxt)
          (define-values (cur-eles nxt-eles) (split-at eles my-count))
-         (displayln (format "Attempt: ~a & ~a" matcher cur-eles))
-         ;; TODO only remain seems to be broken
-
+         (define a (gensym))
+         (displayln (format "Attempt: ~a & ~a (~a)" matcher cur-eles a))
          (define the-cur-match (attempt-match matcher (ms-only-remain cur-eles)))
+         (displayln (format "DONE: ~a" a))
          (cond
            [(and the-cur-match (not (empty? cur-eles)))
             (define perfed (perform-match-tree nxt nxt-eles))
@@ -83,6 +74,6 @@
   (stream-fold
    fold-states
    #f
-   (stream-filter
-    (compose not identity)
-    (stream-map do-match cstream))))
+   (stream-map
+    do-match
+    (stream-filter (compose identity cdr) cstream))))
