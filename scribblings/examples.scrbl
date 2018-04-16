@@ -4,9 +4,7 @@
   (for-label "../lib/hml-lang.rkt" racket xml)
   scribble/eval)
 
-@title{HML Examples}
-
-
+@title{More Complex Examples}
 
 @(define do-eval (make-base-eval))
 @interaction-eval[#:eval do-eval
@@ -28,9 +26,6 @@
                          (p "More text"))))))
  		  (define written-doc1 (display-xml/content doc1))]
 
-
-
-
 Given the following document bound to @code{doc1}:
 @interaction[
 	#:eval do-eval
@@ -44,5 +39,5 @@ Given the following document bound to @code{doc1}:
            (div (h1 'title)
                 (p  'content))
            doc1
-           (cons (hash-ref mm 'title) (hash-ref mm 'content)))
+           (cons title content))
           ]
