@@ -10,7 +10,7 @@
 
 @(define do-eval (make-base-eval))
 @interaction-eval[#:eval do-eval
-                  (require "../lib/hml-lang.rkt")
+                  (require "../lib/hml-lang.rkt" xml)
                   (define doc1
                     (xexpr->xml
                      '(html

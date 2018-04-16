@@ -9,4 +9,5 @@ The key strengths of these patterns are due to there loose coupling to the under
 is being matched. Patterns are made out of compisition of smaller patterns, and the library will
 do some "spelunking" through the document in order to identify matching sub documents.
 
+@include-section["syntax.scrbl"]
 @include-section["examples.scrbl"]
