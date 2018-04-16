@@ -77,16 +77,26 @@
      (pop&assign acc (data-matcher-name self)))
    (define (get-consume-range self) (cons 1 2))])
 
-(define (simple-tag-matcher name . subs)
-  (simple-tag-matcher* name subs))
+(define (simple-tag-matcher name attrs . subs)
+  (simple-tag-matcher* name subs attrs))
 
-(struct simple-tag-matcher* (tag-name sub-matchers)
+(struct simple-tag-matcher* (tag-name sub-matchers attr-list)
   #:methods gen:matcher
   [(define (attempt-match self orig-state)
-     (match-define (simple-tag-matcher* my-name my-subs) self)
+     (match-define (simple-tag-matcher* my-name my-subs my-attrs) self)
      (define-values (post-state ele) (ms-pop-remain orig-state))
      (define (tag=? x) (eq? my-name (get-tag x)))
-     (define (attributes=? x) #t) ;; TODO
+     (define (attributes=? x)
+       (define ele-attrs (list-element-attrs x))
+       (define my-keys (map car my-attrs))
+
+       (and ele-attrs
+            (let ((selected (map (λ (x) (assoc x ele-attrs)) my-keys)))
+              (and (andmap identity selected)
+                   (andmap
+                    (λ (x) (equal? (cdr (assoc (car x) my-attrs))
+                                   (cdr x)))
+                    selected)))))
      (define (content-len=? x) (equal? (length (xml-content x))
                                        (length my-subs)))
      (match ele
@@ -115,14 +125,15 @@
 (define (always-match? m)
   (eq? m always-match))
 
-(define (wildcard-matcher name . subs) (wildcard-matcher* name subs))
+(define (wildcard-matcher name attrs . subs)
+  (wildcard-matcher* name subs attrs))
 
-(struct wildcard-matcher* (name subs)
+(struct wildcard-matcher* (name subs attrs)
   #:methods gen:matcher
   [(define/generic gen-range get-consume-range)
    (define (attempt-match self state)
      ;; TODO state
-     (match-define (wildcard-matcher* name subs) self)
+     (match-define (wildcard-matcher* name subs _) self)
      (define remaining (match-state-remain state))
      (define i-allow-zero?
        (let ([r (get-consume-range self)])
@@ -132,7 +143,7 @@
        [(empty? (match-state-remain state)) #f]
        [else
         (define wildcard-tree
-          (handle-next (list self) (match-state-remain state)))
+          (handle-next (first subs) (rest subs) (match-state-remain state)))
         (define results (perform-match-tree wildcard-tree (match-state-remain state)))
         (displayln (format "Perform-Match-Results: ~a" results))
         (and results (ms-add-child state results))])) ; TODO one wildcard child next to another ...

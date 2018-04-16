@@ -1,6 +1,12 @@
 #lang racket
 
-(require (for-syntax syntax/parse racket/syntax racket))
+(require (for-syntax
+          syntax/parse
+          racket/syntax
+          racket
+          mischief/parse
+          syntax/stx))
+
 (require "html-matcher.rkt"
          "matcher-lib.rkt"
          "match-state.rkt"
@@ -20,6 +26,11 @@
     [(ormap (λ (x . y) (eq? '* x)) data) #'wildcard-matcher]
     [else #'simple-tag-matcher]))
 
+(begin-for-syntax
+  (define/contract (as-string s)
+    (-> (or/c symbol? string?) string?)
+    (if (not (string? s)) (symbol->string s) s)))
+
 ;; Parses out a pattern into the code that will construct
 ;; proper patterns (via their struct constructors)
 (define-for-syntax (parse-pattern stx)
@@ -28,12 +39,15 @@
     [((~datum quote) x) #'(data-matcher 'x)]
     [(tag-name:id ((key:id val:expr) ...) contents:expr ...)
      #:with matcher (select-matcher-for (syntax->datum stx))
+     #:attr (key+ 1) (stx-map (λ (x) (as-string (syntax->datum x))) #'(key ...))
+     #:attr (val+ 1) (stx-map (λ (x) (as-string (syntax->datum x))) #'(val ...))
      #`(matcher 'tag-name
-                ((key val) ...)
+                `((,(symbol->string 'key) . ,(symbol->string 'val)) ...)
                 #,@(map parse-pattern (syntax->list #'(contents ...))))]
     [(tag-name:id contents:expr ...)
      #:with matcher (select-matcher-for (syntax->datum stx))
      #`(matcher 'tag-name
+                '()
                 #,@(map parse-pattern (syntax->list #'(contents ...))))]))
 
 ;; Compiles a pattern (compile time function version).
@@ -52,9 +66,8 @@
    "If you are trying to access pattern variables you must use a literal pattern."))
 
 (define-for-syntax (check-name allowed stx)
-  (unless (and (identifier? stx)
-               (or (identifier-binding stx)
-                   (member (syntax-e stx) allowed)))
+  (unless (or (syntax-matches? stx _:bound-id)
+              (member (syntax-e stx) allowed))
     (raise-syntax-error #f ERR-MSG stx)))
 
 (define-for-syntax (collect-pattern-vars stx)
@@ -98,9 +111,9 @@
      #:with mm-name (format-id stx "mm")
      #:attr pvars (collect-pattern-vars #'pat)
      #:attr (allowed-names-id 1) (map (λ (x) (format-id stx "~a" x))
-                                       (attribute pvars))
+                                       (@ pvars))
      #:attr (allowed-names-path-id 1) (map (λ (x) (format-id stx "~a.path" x))
-                                           (attribute pvars))
+                                           (@ pvars))
      #'(let* ([complete (apply-to-completion (make-pattern pat) (list doc))]
               [built (build-ms complete)])
          (for/list ([mm-name built])
