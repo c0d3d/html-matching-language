@@ -1,7 +1,7 @@
 #lang s-exp "hml-test-lang.rkt"
 
-(define a-end-in-nest-b
-  (make-pattern (a * (b 'one))))
+;; (define a-end-in-nest-b
+;;   (make-pattern (a * (b 'one))))
 
 ;; (define last-in-a
 ;;   (make-pattern (a * 'last)))
@@ -31,10 +31,10 @@
 ;;  a-end-in-nest-b
 ;;  '(a (b "nope") "a"))
 
-(test
- a-end-in-nest-b
- '(a (b "a"))
- ('a (a b) "a"))
+;; (test
+;;  a-end-in-nest-b
+;;  '(a (b "a"))
+;;  ('a (a b) "a"))
 
 ;; (test
 ;;  a-end-in-nest-b

@@ -15,29 +15,35 @@
        (eq? 1 (- (cdr x)
                  (car x)))))
 
-(define (handle-next remain-mchs eles)
+(define (handle-next last-mch remain-mchs eles)
   (cond
     [(empty? remain-mchs)
-     (displayln "NONE LEFT!")
-     #f]
-    [(only1? (get-consume-range (first remain-mchs)))
+     (and last-mch
+          (let* ([allow-range (get-consume-range last-mch)]
+                 [allow-low (car allow-range)]
+                 [allow-high (cdr allow-range)]
+                 [ele-count (length eles)]
+                 [low-allowed? (or (not allow-low) (<= allow-low ele-count))]
+                 [high-allowed? (or (not allow-high) (> allow-high ele-count))]
+                 [allowed? (and low-allowed? high-allowed?)])
+            (if allowed? (wcnode last-mch empty-stream) #f)))]
+    [(only1? (get-consume-range last-mch))
      (displayln "ONLY 1!")
-     (define nxt (handle-next (rest remain-mchs) (rest eles)))
+     (define nxt (handle-next (first remain-mchs)
+                              (rest remain-mchs)
+                              (rest eles)))
      (wcnode (first remain-mchs)
              (if nxt (stream (cons 1 nxt)) empty-stream))]
     [else
-     (match-define (cons low high) (get-consume-range (first remain-mchs)))
+     (match-define (cons low high) (get-consume-range last-mch))
+     (displayln (format "[~a, ~a)" low high))
      (define low+ (max 0 (or low 0)))
      (define high+
        (let ([max-len (add1 (length eles))])
          (min max-len (or high max-len))))
      (define finished-children
-       (for/stream ([me-consume (range (sub1 high+) (- low+ 2) -1)])
-         (cons me-consume (handle-next (rest remain-mchs) (drop eles me-consume)))))
-     (displayln (format "Finish-Children: ~a -> ~a \n~a\n"
-                        (first remain-mchs)
-                        (stream->list finished-children)
-                        eles))
+       (for/stream ([me-consume (range (sub1 high+) (sub1 low+) -1)])
+         (cons me-consume (handle-next (first remain-mchs) (rest remain-mchs) (drop eles me-consume)))))
      (wcnode (first remain-mchs) finished-children)]))
 
 
@@ -48,10 +54,8 @@
       (match child
         [(cons my-count nxt)
          (define-values (cur-eles nxt-eles) (split-at eles my-count))
-         (define a (gensym))
-         (displayln (format "Attempt: ~a & ~a (~a)" matcher cur-eles a))
+         (displayln (format "Attempt: ~a & ~a" matcher cur-eles))
          (define the-cur-match (attempt-match matcher (ms-only-remain cur-eles)))
-         (displayln (format "DONE: ~a" a))
          (cond
            [(and the-cur-match (not (empty? cur-eles)))
             (define perfed (perform-match-tree nxt nxt-eles))

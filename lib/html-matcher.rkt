@@ -3,22 +3,21 @@
 (require xml)
 
 (provide
-
+ content-content
  content/c
  content?
-
+ decompose-element
+ get-tag
  has-tag?
- xml/list->string
- xml-content
+ list-element-attrs
  match-data
  match-data-path
  match-data-text
  string->xml/element
  xexpr->xml/element
- get-tag
  xml->string
- content-content
- decompose-element)
+ xml-content
+ xml/list->string)
 
 ;; A Xml is one of:
 ;;  - Document
@@ -166,3 +165,13 @@
 ;; Converter from strings to xml repr
 (define string->xml/element
   (compose document-element read-xml/document open-input-string))
+
+(define (list-element-attrs x)
+  (cond
+    [(get-tag x)
+     (define (extract-one a)
+       (match-define (attribute _ _ name value) a)
+       (cons (symbol->string name) value))
+     (define raw-attr-list (element-attributes x))
+     (map extract-one raw-attr-list)]
+    [else #f]))
