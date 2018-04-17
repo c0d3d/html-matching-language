@@ -4,7 +4,8 @@
 
 (define a-doc
   (xexpr->xml
-   '(a ((href "foo.com")) "bar")))
+   '(div (a ((href "foo.com")) "yes")
+         (a ((href "bar.com")) "no"))))
 
 (match/html
  (a ((href foo.com)) 'content)
